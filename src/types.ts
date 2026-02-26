@@ -30,6 +30,8 @@ export interface AllowedRoot {
 export interface ContainerConfig {
   additionalMounts?: AdditionalMount[];
   timeout?: number; // Default: 300000 (5 minutes)
+  provider?: string; // AI provider: 'claude' | 'deepseek' | 'qwen' | 'doubao' | 'minimax' | 'gemini' | 'openai'
+  model?: string; // Model ID override (uses provider default if absent)
 }
 
 export interface RegisteredGroup {
@@ -87,6 +89,16 @@ export interface Channel {
   disconnect(): Promise<void>;
   // Optional: typing indicator. Channels that support it implement it.
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
+}
+
+// --- Skills ---
+
+export interface SkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  type: 'builtin' | 'custom';
+  enabled: boolean;
 }
 
 // Callback type that channels use to deliver inbound messages

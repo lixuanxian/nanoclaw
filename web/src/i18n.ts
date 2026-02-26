@@ -1,0 +1,278 @@
+import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import React from 'react';
+
+type Lang = 'en' | 'zh-CN' | 'system';
+
+const translations: Record<string, Record<string, string>> = {
+  en: {
+    'chat.placeholder': 'Type a message...',
+    'chat.send': 'Send',
+    'chat.newChat': 'New Chat',
+    'chat.deleteConfirm': 'Delete this conversation?',
+    'chat.thinking': '{name} is thinking...',
+    'chat.you': 'You',
+    'chat.loadOlder': '\u25b2 Load older messages',
+    'chat.loading': 'Loading...',
+    'chat.loadFailed': 'Failed to load \u2014 click to retry',
+    'chat.justNow': 'just now',
+    'chat.mAgo': '{n}m ago',
+    'chat.showMore': 'Show more',
+    'chat.showLess': 'Show less',
+    'chat.connecting': 'connecting...',
+    'chat.connected': 'connected',
+    'chat.reconnecting': 'reconnecting...',
+    'chat.readOnly': 'View only \u2014 messages from {channel}',
+    'chat.fileTooLarge': 'File too large (max 10MB): {name}',
+    'chat.uploadFailed': 'Upload failed: {error}',
+    'chat.sug1': "One agent searches today's AI news, another writes a blog post summarizing the top 5 developments",
+    'chat.sug2': 'One agent scrapes Hacker News top 10 posts, another translates and compiles a Chinese summary report',
+    'chat.sug3': 'One agent designs a todo REST API spec, another implements it with Express, a third generates the docs',
+    'chat.sug4': 'One agent writes a Python Snake game, another writes unit tests and a README for it simultaneously',
+    'chat.sug5': 'One agent reads a CSV and computes statistics, another builds an HTML dashboard with charts from the results',
+    'chat.modePlan': 'Plan',
+    'chat.modeEdit': 'Edit',
+    'chat.skills': 'Skills',
+    'settings.title': 'Settings',
+    'settings.tabAi': 'AI Model',
+    'settings.tabChannels': 'Channels',
+    'settings.tabSkills': 'Skills',
+    'settings.tabUser': 'User',
+    'ai.title': 'AI Provider',
+    'ai.defaultProvider': 'Default Provider',
+    'ai.model': 'Model',
+    'ai.apiUrl': 'API URL',
+    'ai.apiKey': 'API Key',
+    'ai.save': 'Save',
+    'ai.saved': 'Saved',
+    'ai.default': 'Default',
+    'ai.claudeHint': 'Uses claude login credentials.',
+    'ai.enterApiKey': 'Enter API key',
+    'ch.connected': 'Connected',
+    'ch.connect': 'Connect',
+    'ch.connecting': 'Connecting...',
+    'ch.retry': 'Retry',
+    'ch.saved': 'Saved',
+    'ch.scanQr': 'Scan with WhatsApp \u2192 Linked Devices',
+    'ch.setupGuide': 'Setup Guide',
+    'ch.starting': 'Starting...',
+    'ch.stopping': 'Stopping...',
+    'ch.startFailed': 'Start failed',
+    'ch.webGuide.1': 'Web Chat is the default channel, always enabled.',
+    'ch.webGuide.2': 'Access at <b>http://localhost:{port}</b> (or your server IP).',
+    'ch.webGuide.3': 'Set <code>ADMIN_PASSWORD</code> in <code>.env</code> to require login.',
+    'ch.webGuide.4': 'Each browser tab creates an isolated conversation session.',
+    'ch.waGuide.1': 'Toggle the switch above to enable WhatsApp, then click <b>Connect</b>.',
+    'ch.waGuide.2': 'Open WhatsApp \u2192 Settings \u2192 Linked Devices \u2192 Link a Device.',
+    'ch.waGuide.3': 'Scan the QR code displayed on this page.',
+    'ch.waGuide.4': 'In group chats, mention <b>@{name}</b> to trigger the AI. In 1-on-1 chats, all messages are processed.',
+    'ch.slackGuide.1': 'Create a Slack app at <a href="https://api.slack.com/apps" target="_blank">api.slack.com/apps</a> \u2192 <b>Create New App</b> \u2192 <b>From scratch</b>.',
+    'ch.slackGuide.2': 'Go to <b>Settings \u2192 Socket Mode</b>, toggle it on. Create an <b>App-Level Token</b> (name it anything, add <code>connections:write</code> scope). Copy the <code>xapp-</code> token.',
+    'ch.slackGuide.3': 'Go to <b>OAuth & Permissions \u2192 Bot Token Scopes</b>, add: <code>chat:write</code>, <code>channels:history</code>, <code>channels:read</code>, <code>groups:history</code>, <code>groups:read</code>, <code>im:history</code>, <code>im:read</code>, <code>app_mentions:read</code>.',
+    'ch.slackGuide.4': 'Go to <b>Event Subscriptions</b>, toggle on. Under <b>Subscribe to bot events</b>, add: <code>message.im</code> and <code>app_mention</code>. Click <b>Save Changes</b>.',
+    'ch.slackGuide.5': 'Go back to <b>OAuth & Permissions</b>. The <b>Install to Workspace</b> button now appears (it requires scopes first). Click it and authorize.',
+    'ch.slackGuide.6': 'Copy the <b>Bot User OAuth Token</b> (<code>xoxb-</code>) from the OAuth page and the <b>App-Level Token</b> (<code>xapp-</code>) from step 2 into the fields above. Click Save, then toggle the switch to enable.',
+    'ch.dtGuide.1': 'Go to <a href="https://open-dev.dingtalk.com" target="_blank">DingTalk Developer Portal</a> \u2192 Application \u2192 Create an <b>Enterprise Internal App</b>.',
+    'ch.dtGuide.2': 'In the app, go to <b>Bot Configuration</b>, enable the bot, and select <b>Stream</b> mode.',
+    'ch.dtGuide.3': 'Copy the <b>Client ID</b> (AppKey) and <b>Client Secret</b> (AppSecret) from the app\u2019s <b>Credentials</b> page.',
+    'ch.dtGuide.4': '(Optional) To send proactive messages: create a <b>Custom Robot</b> in the DingTalk group, copy the Webhook URL and Secret.',
+    'ch.dtGuide.5': 'Paste the values into the fields above, click Save, then toggle the switch to enable.',
+    'user.profile': 'Profile',
+    'user.name': 'Name',
+    'user.appearance': 'Appearance',
+    'user.theme': 'Theme',
+    'user.themeSystem': 'System',
+    'user.themeDark': 'Dark',
+    'user.themeLight': 'Light',
+    'user.language': 'Language',
+    'user.langSystem': 'System',
+    'user.guide': 'Quick Guide',
+    'user.logout': 'Logout',
+    'user.guideChat': 'Type a message or drop files to talk with your AI assistant.',
+    'user.guideSessions': 'Each conversation is isolated. Use the sidebar to switch or create new chats.',
+    'user.guideAi': 'Configure your preferred AI provider and model in the AI Model tab.',
+    'user.guideChannels': 'Connect WhatsApp, DingTalk, Slack, and more from the Channels tab.',
+    'user.guideFiles': 'Attach images or documents (up to 10 MB) via the clip icon or drag & drop.',
+    'skills.title': 'Installed Skills',
+    'skills.addCustom': 'Add Custom',
+    'skills.installRemote': 'Install from URL',
+    'skills.empty': 'No skills installed',
+    'skills.created': 'Skill created',
+    'skills.createFailed': 'Failed to create skill',
+    'skills.deleteConfirm': 'Delete this skill?',
+    'skills.name': 'Name',
+    'skills.description': 'Description',
+    'skills.content': 'SKILL.md Content',
+    'skills.type.builtin': 'Built-in',
+    'skills.type.custom': 'Custom',
+    'skills.installUrl': 'SKILL.md URL',
+    'skills.installSuccess': 'Skill installed',
+    'skills.installFailed': 'Install failed',
+    'login.subtitle': 'Enter password to continue',
+    'login.password': 'Password',
+    'login.submit': 'Login',
+    'login.error': 'Incorrect password',
+    'claudeCli': 'Claude CLI',
+  },
+  'zh-CN': {
+    'chat.placeholder': '输入消息...',
+    'chat.send': '发送',
+    'chat.newChat': '新对话',
+    'chat.deleteConfirm': '删除此对话？',
+    'chat.thinking': '{name} 正在思考...',
+    'chat.you': '你',
+    'chat.loadOlder': '▲ 加载更早的消息',
+    'chat.loading': '加载中...',
+    'chat.loadFailed': '加载失败 — 点击重试',
+    'chat.justNow': '刚刚',
+    'chat.mAgo': '{n}分钟前',
+    'chat.showMore': '展开更多',
+    'chat.showLess': '收起',
+    'chat.connecting': '连接中...',
+    'chat.connected': '已连接',
+    'chat.reconnecting': '重新连接中...',
+    'chat.readOnly': '仅查看 — 来自 {channel} 的消息',
+    'chat.fileTooLarge': '文件过大（最大10MB）：{name}',
+    'chat.uploadFailed': '上传失败：{error}',
+    'chat.sug1': '一个 agent 搜索今天的 AI 新闻，另一个写博客总结 Top 5 动态',
+    'chat.sug2': '一个 agent 爬取 Hacker News Top 10 帖子，另一个翻译并汇编中文摘要报告',
+    'chat.sug3': '一个 agent 设计待办事项 REST API 规格，另一个用 Express 实现，第三个生成文档',
+    'chat.sug4': '一个 agent 用 Python 写贪吃蛇游戏，另一个同时编写单元测试和 README',
+    'chat.sug5': '一个 agent 读取 CSV 计算统计指标，另一个根据结果生成带图表的 HTML 看板',
+    'chat.modePlan': '规划',
+    'chat.modeEdit': '编辑',
+    'chat.skills': '技能',
+    'settings.title': '设置',
+    'settings.tabAi': 'AI 模型',
+    'settings.tabChannels': '渠道',
+    'settings.tabSkills': '技能',
+    'settings.tabUser': '用户',
+    'ai.title': 'AI 服务商',
+    'ai.defaultProvider': '默认服务商',
+    'ai.model': '模型',
+    'ai.apiUrl': 'API 地址',
+    'ai.apiKey': 'API 密钥',
+    'ai.save': '保存',
+    'ai.saved': '已保存',
+    'ai.default': '默认',
+    'ai.claudeHint': '使用 claude login 凭证。',
+    'ai.enterApiKey': '输入 API 密钥',
+    'ch.connected': '已连接',
+    'ch.connect': '连接',
+    'ch.connecting': '连接中...',
+    'ch.retry': '重试',
+    'ch.saved': '已保存',
+    'ch.scanQr': '打开 WhatsApp → 已关联的设备 扫码',
+    'ch.setupGuide': '配置指南',
+    'ch.starting': '启动中...',
+    'ch.stopping': '停止中...',
+    'ch.startFailed': '启动失败',
+    'ch.webGuide.1': 'Web Chat 是默认渠道，始终启用。',
+    'ch.webGuide.2': '访问地址：<b>http://localhost:{port}</b>（或服务器 IP）。',
+    'ch.webGuide.3': '在 <code>.env</code> 中设置 <code>ADMIN_PASSWORD</code> 可启用登录保护。',
+    'ch.webGuide.4': '每个浏览器标签页创建独立的会话。',
+    'ch.waGuide.1': '打开上方开关启用 WhatsApp，然后点击<b>连接</b>。',
+    'ch.waGuide.2': '打开 WhatsApp → 设置 → 已关联的设备 → 关联新设备。',
+    'ch.waGuide.3': '扫描页面上显示的二维码。',
+    'ch.waGuide.4': '在群聊中 @<b>{name}</b> 触发 AI；私聊中所有消息都会被处理。',
+    'ch.slackGuide.1': '在 <a href="https://api.slack.com/apps" target="_blank">api.slack.com/apps</a> 点击 <b>Create New App</b> → <b>From scratch</b> 创建应用。',
+    'ch.slackGuide.2': '进入 <b>Settings → Socket Mode</b>，开启开关。创建 <b>App-Level Token</b>（名称随意，添加 <code>connections:write</code> 权限），复制 <code>xapp-</code> 开头的 token。',
+    'ch.slackGuide.3': '进入 <b>OAuth & Permissions → Bot Token Scopes</b>，添加：<code>chat:write</code>, <code>channels:history</code>, <code>channels:read</code>, <code>groups:history</code>, <code>groups:read</code>, <code>im:history</code>, <code>im:read</code>, <code>app_mentions:read</code>。',
+    'ch.slackGuide.4': '进入 <b>Event Subscriptions</b>，开启开关。在 <b>Subscribe to bot events</b> 中添加：<code>message.im</code> 和 <code>app_mention</code>，点击 <b>Save Changes</b>。',
+    'ch.slackGuide.5': '返回 <b>OAuth & Permissions</b> 页面，此时会出现 <b>Install to Workspace</b> 按钮（需先添加 Scopes 才会显示），点击安装并授权。',
+    'ch.slackGuide.6': '复制 OAuth 页面的 <b>Bot User OAuth Token</b>（<code>xoxb-</code> 开头）和第 2 步的 <b>App-Level Token</b>（<code>xapp-</code> 开头）填入上方字段，点击 Save，然后打开开关启用。',
+    'ch.dtGuide.1': '前往 <a href="https://open-dev.dingtalk.com" target="_blank">钉钉开放平台</a> → 应用开发 → 创建<b>企业内部应用</b>。',
+    'ch.dtGuide.2': '在应用中进入<b>机器人配置</b>，启用机器人，选择 <b>Stream</b> 模式。',
+    'ch.dtGuide.3': '复制应用的<b>凭证与基础信息</b>页面中的 <b>Client ID</b>（AppKey）和 <b>Client Secret</b>（AppSecret）。',
+    'ch.dtGuide.4': '（可选）若需主动推送消息：在钉钉群中创建<b>自定义机器人</b>，复制 Webhook URL 和 Secret。',
+    'ch.dtGuide.5': '将以上值填入上方字段，点击保存，然后打开开关启用。',
+    'user.profile': '个人信息',
+    'user.name': '名称',
+    'user.appearance': '外观',
+    'user.theme': '主题',
+    'user.themeSystem': '跟随系统',
+    'user.themeDark': '深色',
+    'user.themeLight': '浅色',
+    'user.language': '语言',
+    'user.langSystem': '跟随系统',
+    'user.guide': '使用指南',
+    'user.logout': '退出登录',
+    'user.guideChat': '输入消息或拖放文件与 AI 助手对话。',
+    'user.guideSessions': '每个会话是独立的，使用侧边栏切换或创建新对话。',
+    'user.guideAi': '在 AI 模型选项卡中配置首选的 AI 服务商和模型。',
+    'user.guideChannels': '在渠道选项卡中连接 WhatsApp、钉钉、Slack 等。',
+    'user.guideFiles': '通过附件按钮或拖放上传图片和文档（最大 10MB）。',
+    'skills.title': '已安装技能',
+    'skills.addCustom': '添加自定义',
+    'skills.installRemote': '从 URL 安装',
+    'skills.empty': '暂无已安装技能',
+    'skills.created': '技能已创建',
+    'skills.createFailed': '创建技能失败',
+    'skills.deleteConfirm': '删除此技能？',
+    'skills.name': '名称',
+    'skills.description': '描述',
+    'skills.content': 'SKILL.md 内容',
+    'skills.type.builtin': '内置',
+    'skills.type.custom': '自定义',
+    'skills.installUrl': 'SKILL.md 链接',
+    'skills.installSuccess': '技能已安装',
+    'skills.installFailed': '安装失败',
+    'login.subtitle': '请输入密码以继续',
+    'login.password': '密码',
+    'login.submit': '登录',
+    'login.error': '密码错误',
+    'claudeCli': 'Claude CLI',
+  },
+};
+
+function resolveLocale(lang: Lang): string {
+  if (lang !== 'system') return lang;
+  return navigator.language.startsWith('zh') ? 'zh-CN' : 'en';
+}
+
+interface I18nContextValue {
+  lang: Lang;
+  setLang: (lang: Lang) => void;
+  t: (key: string, params?: Record<string, string>) => string;
+}
+
+const I18nContext = createContext<I18nContextValue>({
+  lang: 'system',
+  setLang: () => {},
+  t: (k) => k,
+});
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [lang, setLangState] = useState<Lang>(
+    () => (localStorage.getItem('nanoclaw_lang') as Lang) || 'system',
+  );
+
+  const setLang = useCallback((l: Lang) => {
+    localStorage.setItem('nanoclaw_lang', l);
+    setLangState(l);
+  }, []);
+
+  const t = useCallback(
+    (key: string, params?: Record<string, string>): string => {
+      const locale = resolveLocale(lang);
+      let s = translations[locale]?.[key] ?? translations.en[key] ?? key;
+      if (params) {
+        for (const [k, v] of Object.entries(params)) {
+          s = s.replace(`{${k}}`, v);
+        }
+      }
+      return s;
+    },
+    [lang],
+  );
+
+  return React.createElement(I18nContext.Provider, { value: { lang, setLang, t } }, children);
+}
+
+export function useT() {
+  return useContext(I18nContext);
+}
+
+export function getAntdLocale(lang: Lang) {
+  // Antd locale is loaded dynamically; for now return the resolved locale string
+  return resolveLocale(lang);
+}

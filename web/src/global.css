@@ -1,0 +1,430 @@
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  box-sizing: border-box;
+  padding: 12px;
+  overflow: hidden;
+  background: var(--ant-color-bg-layout);
+}
+
+/* ── Settings page: make Tabs fill height, panels scroll ── */
+
+.settings-tabs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.settings-tabs > .ant-tabs-nav,
+.settings-tabs > div > .ant-tabs-nav {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+.settings-tabs > .ant-tabs-content-holder,
+.settings-tabs > div > .ant-tabs-content-holder {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 0 24px;
+}
+
+/* ── Chat Input Area ── */
+
+.chat-input-area {
+  padding: 10px 20px 14px;
+}
+
+.chat-input-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chat-input-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--ant-color-border-secondary);
+  background: var(--ant-color-bg-elevated);
+  font-size: 12px;
+}
+
+.chat-input-composer {
+  border: 1px solid var(--ant-color-border);
+  border-radius: 16px;
+  background: var(--ant-color-bg-container);
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.chat-input-composer:focus-within {
+  border-color: var(--ant-color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ant-color-primary) 15%, transparent);
+}
+
+/* Strip all Ant borders/shadows from the textarea inside the composer */
+.chat-input-composer .chat-input-textarea,
+.chat-input-composer .chat-input-textarea .ant-input,
+.chat-input-composer .chat-input-textarea textarea {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  resize: none !important;
+  padding: 10px 14px !important;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.chat-input-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 8px;
+}
+
+/* Force Ant Design Upload wrapper elements to be inline inside the toolbar */
+.chat-input-toolbar .ant-upload-wrapper,
+.chat-input-toolbar .ant-upload-wrapper .ant-upload,
+.chat-input-toolbar .ant-upload-wrapper .ant-upload-select {
+  display: inline-flex !important;
+  width: auto !important;
+}
+
+.chat-input-toolbar .chat-input-icon-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ant-color-text-secondary);
+}
+
+.chat-input-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--ant-color-border-secondary);
+  flex-shrink: 0;
+}
+
+.chat-input-send {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+/* ── Message Bubbles ── */
+
+.message-list {
+  background: var(--ant-color-bg-layout);
+  scrollbar-gutter: stable;
+}
+
+.msg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 0 16px;
+}
+
+.msg-row-user {
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
+.msg-row-bot {
+  flex-direction: row;
+  justify-content: flex-start;
+}
+
+/* Avatar: rounded square like WeChat */
+.msg-avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.msg-avatar-user {
+  background: var(--ant-color-primary);
+  color: #fff;
+}
+
+.msg-avatar-bot {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+}
+
+/* Body wraps bubble + time, controls alignment */
+.msg-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: min(75%, 720px);
+}
+
+.msg-row-user .msg-body {
+  align-items: flex-end;
+}
+
+.msg-row-bot .msg-body {
+  align-items: flex-start;
+}
+
+/* Bubble */
+.bubble {
+  position: relative;
+  display: inline-block;
+  padding: 9px 12px;
+  border-radius: 8px;
+  line-height: 1.6;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+/* User bubble: arrow points right toward user avatar */
+.bubble-user {
+  background: var(--ant-color-primary);
+  color: #fff;
+}
+.bubble-user::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: -4px;
+  border: 5px solid transparent;
+  border-left-color: var(--ant-color-primary);
+  border-right: 0;
+}
+
+/* Bot bubble: arrow points left toward bot avatar */
+.bubble-bot {
+  background: var(--ant-color-bg-container);
+  border: 1px solid var(--ant-color-border-secondary);
+  color: var(--ant-color-text);
+}
+/* Outer triangle (border color) */
+.bubble-bot::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: -6px;
+  border: 6px solid transparent;
+  border-right-color: var(--ant-color-border-secondary);
+  border-left: 0;
+}
+/* Inner triangle (fill color, covers border) */
+.bubble-bot::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  left: -4px;
+  border: 5px solid transparent;
+  border-right-color: var(--ant-color-bg-container);
+  border-left: 0;
+}
+
+/* Time label below bubble */
+.msg-time {
+  font-size: 11px;
+  color: var(--ant-color-text-quaternary);
+  margin-top: 3px;
+  padding: 0 4px;
+}
+
+.msg-time-right {
+  text-align: right;
+}
+
+.msg-typing-row {
+  padding: 8px 16px 8px 60px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bubble-channel {
+  font-size: 11px;
+  opacity: 0.55;
+  margin-bottom: 2px;
+}
+
+.bubble-files {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bubble-file {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  text-decoration: none;
+  background: var(--ant-color-fill-tertiary);
+  color: inherit;
+}
+.bubble-file:hover {
+  background: var(--ant-color-fill-secondary);
+}
+
+/* ── Markdown inside bubbles ── */
+
+.msg-markdown {
+  line-height: 1.6;
+}
+
+.msg-markdown > *:first-child { margin-top: 0; }
+.msg-markdown > *:last-child { margin-bottom: 0; }
+
+.msg-markdown p {
+  margin: 0 0 8px;
+}
+.msg-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.msg-markdown h1, .msg-markdown h2, .msg-markdown h3,
+.msg-markdown h4, .msg-markdown h5, .msg-markdown h6 {
+  margin: 12px 0 6px;
+  line-height: 1.4;
+}
+.msg-markdown h1 { font-size: 1.25em; }
+.msg-markdown h2 { font-size: 1.15em; }
+.msg-markdown h3 { font-size: 1.05em; }
+
+.msg-markdown code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.88em;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--ant-color-fill-tertiary);
+}
+
+.msg-markdown pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.msg-markdown pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
+/* User bubble: tint code blocks for light-on-dark readability */
+.bubble-user .msg-markdown code {
+  background: rgba(255, 255, 255, 0.18);
+}
+.bubble-user .msg-markdown pre {
+  background: rgba(0, 0, 0, 0.15);
+}
+.bubble-user .msg-markdown a {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.msg-markdown blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--ant-color-border);
+  opacity: 0.85;
+}
+
+.msg-markdown ul, .msg-markdown ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.msg-markdown li {
+  margin-bottom: 2px;
+}
+
+.msg-markdown table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+  width: 100%;
+}
+.msg-markdown th, .msg-markdown td {
+  border: 1px solid var(--ant-color-border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.msg-markdown th {
+  background: var(--ant-color-fill-quaternary);
+  font-weight: 600;
+}
+
+.msg-markdown a {
+  color: var(--ant-color-primary);
+  text-decoration: none;
+}
+.msg-markdown a:hover {
+  text-decoration: underline;
+}
+
+.msg-markdown img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 4px 0;
+}
+
+.msg-markdown hr {
+  border: none;
+  border-top: 1px solid var(--ant-color-border);
+  margin: 12px 0;
+}
+
+/* ── Embedded content (PDF, video) ── */
+
+.msg-embed {
+  margin: 8px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--ant-color-border);
+}
+
+.msg-embed iframe,
+.msg-embed embed {
+  border: none;
+  width: 100%;
+}
+
+.msg-embed-pdf {
+  width: 100%;
+  height: 400px;
+}
+
+.msg-embed-image {
+  max-width: 100%;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.msg-embed-image:hover {
+  opacity: 0.9;
+}

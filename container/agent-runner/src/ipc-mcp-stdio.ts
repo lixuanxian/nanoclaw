@@ -280,6 +280,42 @@ Use available_groups.json to find the JID for a group. The folder name should be
   },
 );
 
+server.tool(
+  'set_provider',
+  `Set the AI provider and model for a group. Main group only.
+
+Available providers: claude (default), deepseek, qwen, doubao, minimax, gemini, openai.
+Each provider requires its own API key set in .env (e.g., DEEPSEEK_API_KEY, QWEN_API_KEY).`,
+  {
+    group_folder: z.string().describe('Group folder to configure (e.g., "family-chat")'),
+    provider: z.enum(['claude', 'deepseek', 'qwen', 'doubao', 'minimax', 'gemini', 'openai']).describe('Provider ID'),
+    model: z.string().optional().describe('Model ID (uses provider default if not specified)'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return {
+        content: [{ type: 'text' as const, text: 'Only the main group can change providers.' }],
+        isError: true,
+      };
+    }
+
+    const data = {
+      type: 'set_provider',
+      groupFolder: args.group_folder,
+      provider: args.provider,
+      model: args.model,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(TASKS_DIR, data);
+
+    const modelInfo = args.model ? ` (model: ${args.model})` : ' (using default model)';
+    return {
+      content: [{ type: 'text' as const, text: `Provider set to ${args.provider}${modelInfo} for group "${args.group_folder}". Takes effect on next message.` }],
+    };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);

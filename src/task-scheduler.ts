@@ -21,14 +21,16 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
+import { loadDefaultProviderConfig } from './channel-config.js';
+import { getProvider } from './providers.js';
 import { RegisteredGroup, ScheduledTask } from './types.js';
 
 export interface SchedulerDependencies {
   registeredGroups: () => Record<string, RegisteredGroup>;
   getSessions: () => Record<string, string>;
   queue: GroupQueue;
-  onProcess: (groupJid: string, proc: ChildProcess, containerName: string, groupFolder: string) => void;
-  sendMessage: (jid: string, text: string) => Promise<void>;
+  onProcess: (folder: string, proc: ChildProcess, containerName: string) => void;
+  sendMessage: (folder: string, text: string) => Promise<void>;
 }
 
 async function runTask(
@@ -120,32 +122,42 @@ async function runTask(
     if (closeTimer) return; // already scheduled
     closeTimer = setTimeout(() => {
       logger.debug({ taskId: task.id }, 'Closing task container after result');
-      deps.queue.closeStdin(task.chat_jid);
+      deps.queue.closeStdin(task.group_folder);
     }, TASK_CLOSE_DELAY_MS);
   };
+
+  // Resolve AI provider: session config → global default → 'claude'
+  const defaultCfg = loadDefaultProviderConfig();
+  const providerId = group.containerConfig?.provider || defaultCfg.provider;
+  const providerConfig = getProvider(providerId);
+  const modelId = group.containerConfig?.model || defaultCfg.model || providerConfig?.defaultModel;
+  const apiBase = defaultCfg.api_base || providerConfig?.apiBase || '';
 
   try {
     const output = await runContainerAgent(
       group,
       {
         prompt: task.prompt,
-        sessionId,
+        sessionId: providerId === 'claude' ? sessionId : undefined,
         groupFolder: task.group_folder,
         chatJid: task.chat_jid,
         isMain,
         isScheduledTask: true,
         assistantName: ASSISTANT_NAME,
+        provider: providerId,
+        model: modelId,
+        providerApiBase: apiBase,
       },
-      (proc, containerName) => deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
+      (proc, containerName) => deps.onProcess(task.group_folder, proc, containerName),
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
-          // Forward result to user (sendMessage handles formatting)
-          await deps.sendMessage(task.chat_jid, streamedOutput.result);
+          // Forward result to all channels sharing this folder
+          await deps.sendMessage(task.group_folder, streamedOutput.result);
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {
-          deps.queue.notifyIdle(task.chat_jid);
+          deps.queue.notifyIdle(task.group_folder);
         }
         if (streamedOutput.status === 'error') {
           error = streamedOutput.error || 'Unknown error';
@@ -228,7 +240,7 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         }
 
         deps.queue.enqueueTask(
-          currentTask.chat_jid,
+          currentTask.group_folder,
           currentTask.id,
           () => runTask(currentTask, deps),
         );

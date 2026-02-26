@@ -1,0 +1,251 @@
+import crypto from 'crypto';
+import { readFileSync, existsSync, statSync } from 'fs';
+import { join, extname } from 'path';
+
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+import { createNodeWebSocket } from '@hono/node-ws';
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
+
+import { ADMIN_PASSWORD, ASSISTANT_NAME, WEB_HOST, WEB_PORT } from './config.js';
+import { countMessagesForJids, getAllMessagesForJids, getJidsByFolder } from './db.js';
+import { logger } from './logger.js';
+import { WebChannel } from './channels/web.js';
+import { registerApiRoutes } from './web-api.js';
+
+const PAGE_SIZE = 10;
+
+/** Stable token derived from the admin password (empty if no password set). */
+function authToken(): string {
+  if (!ADMIN_PASSWORD) return '';
+  return crypto.createHash('sha256').update(ADMIN_PASSWORD).digest('hex');
+}
+
+export interface ChannelManager {
+  startChannelById: (id: string) => Promise<string | null>;
+  stopChannelById: (id: string) => Promise<string | null>;
+  getActiveChannelIds: () => string[];
+}
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
+export function startWebServer(webChannel: WebChannel, channelManager?: ChannelManager, port?: number): void {
+  const app = new Hono();
+  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+
+  const listenPort = port ?? WEB_PORT;
+  const webDistDir = join(process.cwd(), 'web', 'dist');
+  const getIndexHtml = (): string => {
+    const indexHtmlPath = join(webDistDir, 'index.html');
+    const mainBundlePath = join(webDistDir, 'assets', 'main.js');
+    if (!existsSync(indexHtmlPath)) {
+      return '<html><body>Web UI not built. Run <code>npm run build:web</code></body></html>';
+    }
+    const mainBundleVersion = existsSync(mainBundlePath)
+      ? String(Math.floor(statSync(mainBundlePath).mtimeMs))
+      : '';
+    const mainCssPath = join(webDistDir, 'assets', 'main.css');
+    const mainCssVersion = existsSync(mainCssPath)
+      ? String(Math.floor(statSync(mainCssPath).mtimeMs))
+      : '';
+    let html = readFileSync(indexHtmlPath, 'utf-8');
+    if (mainBundleVersion) {
+      html = html.replace('/assets/main.js', `/assets/main.js?v=${mainBundleVersion}`);
+    }
+    if (mainCssVersion) {
+      html = html.replace('/assets/main.css', `/assets/main.css?v=${mainCssVersion}`);
+    }
+    return html;
+  };
+
+  // --- Favicon (public, no auth required) ---
+  const faviconPath = join(process.cwd(), 'assets', 'nanoclaw.ico');
+  const faviconBuf = existsSync(faviconPath) ? readFileSync(faviconPath) : null;
+  if (faviconBuf) {
+    app.get('/favicon.ico', (c) => {
+      return c.body(faviconBuf, 200, {
+        'Content-Type': 'image/x-icon',
+        'Cache-Control': 'public, max-age=604800',
+      });
+    });
+  }
+
+  // --- Auth middleware (only active when ADMIN_PASSWORD is set) ---
+  if (ADMIN_PASSWORD) {
+    const token = authToken();
+    const publicPaths = new Set(['/login', '/api/login', '/.well-known/agent-card.json', '/favicon.ico']);
+
+    app.use('*', async (c, next) => {
+      const path = c.req.path;
+      if (publicPaths.has(path)) return next();
+      // Allow static assets through without auth
+      if (path.startsWith('/assets/')) return next();
+      const cookie = getCookie(c, 'nanoclaw_auth');
+      if (cookie === token) return next();
+      // For API/WS requests, return 401 instead of redirect
+      if (path.startsWith('/api/') || path === '/ws') {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      return c.redirect('/login');
+    });
+  }
+
+  // --- Login API ---
+  app.post('/api/login', async (c) => {
+    if (!ADMIN_PASSWORD) return c.redirect('/');
+    const body = await c.req.parseBody();
+    const password = typeof body.password === 'string' ? body.password : '';
+
+    if (password !== ADMIN_PASSWORD) {
+      return c.json({ error: 'Incorrect password' }, 401);
+    }
+
+    setCookie(c, 'nanoclaw_auth', authToken(), {
+      httpOnly: true,
+      sameSite: 'Strict',
+      path: '/',
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+    });
+    return c.redirect('/');
+  });
+
+  app.get('/api/logout', (c) => {
+    deleteCookie(c, 'nanoclaw_auth', { path: '/' });
+    return c.redirect('/login');
+  });
+
+  // --- Agent Card discovery (A2A protocol) ---
+  app.get('/.well-known/agent-card.json', (c) => {
+    return c.json({
+      name: ASSISTANT_NAME,
+      description: `Personal AI assistant powered by NanoClaw`,
+      url: `http://${WEB_HOST === '0.0.0.0' ? 'localhost' : WEB_HOST}:${listenPort}`,
+      version: '1.0.0',
+      capabilities: {
+        streaming: false,
+        pushNotifications: false,
+      },
+      defaultInputModes: ['text/plain'],
+      defaultOutputModes: ['text/plain'],
+      skills: [
+        {
+          id: 'chat',
+          name: 'General Assistant',
+          description:
+            'Chat, task execution, code, web search, and more',
+        },
+      ],
+    });
+  });
+
+  // --- REST API routes (channels, AI config, sessions, history, files) ---
+  registerApiRoutes(app, webChannel, channelManager);
+
+  // --- WebSocket ---
+  app.get(
+    '/ws',
+    upgradeWebSocket((c) => {
+      const sessionId = c.req.query('session') || WebChannel.generateSessionId();
+      const requestedJid = c.req.query('jid') || null;
+
+      // Viewing a non-web channel's history (read-only, don't create a phantom web group)
+      const isHistoryView = requestedJid != null && !requestedJid.endsWith('@web.nanoclaw');
+
+      return {
+        onOpen(_evt, ws) {
+          if (!isHistoryView) {
+            webChannel.handleConnection(sessionId, ws as unknown as { send(data: string): void; close(): void; readyState: number });
+          }
+
+          // Use requested JID for history lookup (non-web channels), fall back to web JID
+          const jid = requestedJid || `${sessionId}@web.nanoclaw`;
+          try {
+            const groups = webChannel.getRegisteredGroups();
+            const group = groups[jid];
+            const folder = group?.folder;
+            const allJids = folder ? getJidsByFolder(folder) : [jid];
+            const total = countMessagesForJids(allJids);
+            const allMsgs = getAllMessagesForJids(allJids);
+            const recent = allMsgs.slice(-PAGE_SIZE);
+            const olderCount = Math.max(0, total - PAGE_SIZE);
+            ws.send(
+              JSON.stringify({
+                type: 'history',
+                olderCount,
+                messages: recent.map((m) => ({
+                  content: m.content,
+                  sender: m.sender_name,
+                  timestamp: m.timestamp,
+                  is_bot: m.is_bot_message || m.content.startsWith(`${ASSISTANT_NAME}:`),
+                  channel: m.chat_jid.includes('@web.') ? 'web'
+                    : m.chat_jid.includes('@slack.') ? 'slack'
+                    : m.chat_jid.includes('@dingtalk.') ? 'dingtalk'
+                    : m.chat_jid.includes('@g.us') ? 'whatsapp' : 'unknown',
+                })),
+              }),
+            );
+          } catch {
+            // No history yet — that's fine
+          }
+        },
+
+        onMessage(evt, _ws) {
+          try {
+            const data = JSON.parse(String(evt.data));
+            if (data.type === 'message' && (data.text || data.files)) {
+              webChannel.handleMessage(sessionId, data.text || '', data.files, data.mode, data.skills);
+            }
+          } catch (err) {
+            logger.warn({ err }, 'Invalid WebSocket message');
+          }
+        },
+
+        onClose() {
+          if (!isHistoryView) {
+            webChannel.handleDisconnect(sessionId);
+          }
+        },
+      };
+    }),
+  );
+
+  // --- Static files from web/dist/assets/ ---
+  app.get('/assets/*', (c) => {
+    const filePath = join(webDistDir, c.req.path);
+    if (!existsSync(filePath)) return c.notFound();
+    const ext = extname(filePath);
+    const mime = MIME_TYPES[ext] || 'application/octet-stream';
+    const buf = readFileSync(filePath);
+    return c.body(buf, 200, {
+      'Content-Type': mime,
+      'Cache-Control': 'public, max-age=0, must-revalidate',
+    });
+  });
+
+  // --- SPA fallback: serve index.html for all non-API routes ---
+  app.get('*', (c) => {
+    return c.html(getIndexHtml());
+  });
+
+  // --- Start server ---
+  const server = serve({
+    fetch: app.fetch,
+    hostname: WEB_HOST,
+    port: listenPort,
+  });
+
+  injectWebSocket(server);
+
+  logger.info(
+    { host: WEB_HOST, port: listenPort },
+    `Web server started at http://${WEB_HOST}:${listenPort}`,
+  );
+}

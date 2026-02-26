@@ -170,6 +170,9 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    // For set_provider
+    provider?: string;
+    model?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -377,6 +380,42 @@ export async function processTaskIpc(
         logger.warn(
           { data },
           'Invalid register_group request - missing required fields',
+        );
+      }
+      break;
+
+    case 'set_provider':
+      // Only main group can change providers
+      if (!isMain) {
+        logger.warn(
+          { sourceGroup },
+          'Unauthorized set_provider attempt blocked',
+        );
+        break;
+      }
+      if (data.groupFolder && data.provider) {
+        // Find group by folder
+        for (const [jid, group] of Object.entries(registeredGroups)) {
+          if (group.folder === data.groupFolder) {
+            deps.registerGroup(jid, {
+              ...group,
+              containerConfig: {
+                ...group.containerConfig,
+                provider: data.provider,
+                model: data.model || undefined,
+              },
+            });
+            logger.info(
+              { groupFolder: data.groupFolder, provider: data.provider, model: data.model },
+              'Provider updated via IPC',
+            );
+            break;
+          }
+        }
+      } else {
+        logger.warn(
+          { data },
+          'Invalid set_provider request - missing groupFolder or provider',
         );
       }
       break;

@@ -1,0 +1,25 @@
+{
+  "name": "nanoclaw-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.ts",
+    "dev": "node build.ts --watch"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.1.0",
+    "antd": "^6.3.0",
+    "dompurify": "^3.2.5",
+    "marked": "^15.0.7",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.6.1"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.2.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.25.4",
+    "typescript": "^5.7.0"
+  }
+}

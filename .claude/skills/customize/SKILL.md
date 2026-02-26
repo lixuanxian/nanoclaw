@@ -5,92 +5,66 @@ description: Add new capabilities or modify NanoClaw behavior. Use when user wan
 
 # NanoClaw Customization
 
-This skill helps users add capabilities or modify behavior. Use AskUserQuestion to understand what they want before making changes.
+Use AskUserQuestion to understand the request, then make changes directly to the code.
 
 ## Workflow
 
-1. **Understand the request** - Ask clarifying questions
-2. **Plan the changes** - Identify files to modify
-3. **Implement** - Make changes directly to the code
-4. **Test guidance** - Tell user how to verify
+1. **Understand** - Ask clarifying questions
+2. **Plan** - Identify files to modify
+3. **Implement** - Make changes
+4. **Verify** - Tell user how to test
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Orchestrator: state, message loop, agent invocation |
-| `src/channels/whatsapp.ts` | WhatsApp connection, auth, send/receive |
-| `src/ipc.ts` | IPC watcher and task processing |
-| `src/router.ts` | Message formatting and outbound routing |
+| `src/index.ts` | Orchestrator: channel setup, subsystem wiring |
+| `src/state.ts` | Runtime state, `loadState()`, `registerGroup()` |
+| `src/message-loop.ts` | Message polling, `processGroupMessages()`, `runAgent()` |
+| `src/providers.ts` | AI provider registry (7 providers) |
+| `src/channel-config.ts` | Channel + AI config persistence, provider resolution |
+| `src/web-server.ts` | Hono HTTP server, WebSocket, auth, UI routes |
+| `src/web-api.ts` | REST API handlers |
+| `src/channels/web.ts` | Web channel (browser chat via WebSocket) |
+| `src/channels/slack.ts` | Slack channel (Socket Mode) |
+| `src/router.ts` | Message formatting, outbound routing |
+| `src/container-runner.ts` | Spawns agent containers with mounts |
 | `src/types.ts` | TypeScript interfaces (includes Channel) |
 | `src/config.ts` | Assistant name, trigger pattern, directories |
-| `src/db.ts` | Database initialization and queries |
-| `src/whatsapp-auth.ts` | Standalone WhatsApp authentication script |
+| `src/db.ts` | Barrel: re-exports all SQLite operations |
 | `groups/CLAUDE.md` | Global memory/persona |
 
-## Common Customization Patterns
+## AI Provider Architecture
 
-### Adding a New Input Channel (e.g., Telegram, Slack, Email)
+Claude CLI is **not required**. Provider resolution: `group config → Settings page → env vars → Claude (if CLI available) → none`. Users can run NanoClaw first, configure AI later via Settings → AI Model. The container agent gives a clear error if no provider is set.
 
-Questions to ask:
-- Which channel? (Telegram, Slack, Discord, email, SMS, etc.)
-- Same trigger word or different?
-- Same memory hierarchy or separate?
-- Should messages from this channel go to existing groups or new ones?
+## Common Patterns
 
-Implementation pattern:
-1. Create `src/channels/{name}.ts` implementing the `Channel` interface from `src/types.ts` (see `src/channels/whatsapp.ts` for reference)
-2. Add the channel instance to `main()` in `src/index.ts` and wire callbacks (`onMessage`, `onChatMetadata`)
-3. Messages are stored via the `onMessage` callback; routing is automatic via `ownsJid()`
+### Adding a Channel
 
-### Adding a New MCP Integration
+1. Create `src/channels/{name}.ts` implementing `Channel` from `src/types.ts`
+2. Wire into `main()` in `src/index.ts` with `onMessage`, `onChatMetadata` callbacks
+3. Routing is automatic via `ownsJid()`
 
-Questions to ask:
-- What service? (Calendar, Notion, database, etc.)
-- What operations needed? (read, write, both)
-- Which groups should have access?
+### Adding MCP Integration
 
-Implementation:
-1. Add MCP server config to the container settings (see `src/container-runner.ts` for how MCP servers are mounted)
-2. Document available tools in `groups/CLAUDE.md`
+1. Add MCP server config to container settings (`src/container-runner.ts`)
+2. Document tools in `groups/CLAUDE.md`
 
-### Changing Assistant Behavior
+### Changing Behavior
 
-Questions to ask:
-- What aspect? (name, trigger, persona, response style)
-- Apply to all groups or specific ones?
-
-Simple changes → edit `src/config.ts`
-Persona changes → edit `groups/CLAUDE.md`
-Per-group behavior → edit specific group's `CLAUDE.md`
-
-### Adding New Commands
-
-Questions to ask:
-- What should the command do?
-- Available in all groups or main only?
-- Does it need new MCP tools?
-
-Implementation:
-1. Commands are handled by the agent naturally — add instructions to `groups/CLAUDE.md` or the group's `CLAUDE.md`
-2. For trigger-level routing changes, modify `processGroupMessages()` in `src/index.ts`
+- Name/trigger → `src/config.ts`
+- Persona → `groups/CLAUDE.md`
+- Per-group → specific group's `CLAUDE.md`
 
 ### Changing Deployment
 
-Questions to ask:
-- Target platform? (Linux server, Docker, different Mac)
-- Service manager? (systemd, Docker, supervisord)
-
-Implementation:
-1. Create appropriate service files
+1. Create service files for target platform
 2. Update paths in config
-3. Provide setup instructions
 
 ## After Changes
 
-Always tell the user:
 ```bash
-# Rebuild and restart
 npm run build
 # macOS:
 launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
@@ -98,13 +72,3 @@ launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
 # Linux:
 # systemctl --user restart nanoclaw
 ```
-
-## Example Interaction
-
-User: "Add Telegram as an input channel"
-
-1. Ask: "Should Telegram use the same @Andy trigger, or a different one?"
-2. Ask: "Should Telegram messages create separate conversation contexts, or share with WhatsApp groups?"
-3. Create `src/channels/telegram.ts` implementing the `Channel` interface (see `src/channels/whatsapp.ts`)
-4. Add the channel to `main()` in `src/index.ts`
-5. Tell user how to authenticate and test

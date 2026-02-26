@@ -20,8 +20,8 @@ elif git remote get-url origin &>/dev/null; then
 fi
 
 if [ -z "$REMOTE" ]; then
-  echo "No upstream remote found. Adding upstream → https://github.com/qwibitai/nanoclaw.git"
-  git remote add upstream https://github.com/qwibitai/nanoclaw.git
+  echo "No upstream remote found. Adding upstream → https://github.com/lixuanxian/nanoclaw.git"
+  git remote add upstream https://github.com/lixuanxian/nanoclaw.git
   REMOTE="upstream"
 fi
 

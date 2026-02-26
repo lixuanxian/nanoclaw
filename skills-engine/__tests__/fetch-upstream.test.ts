@@ -173,7 +173,7 @@ describe('fetch-upstream.sh', () => {
   it('uses origin when it points to qwibitai/nanoclaw', () => {
     // Set origin to a URL containing qwibitai/nanoclaw
     execSync(
-      `git remote add origin https://github.com/qwibitai/nanoclaw.git`,
+      `git remote add origin https://github.com/lixuanxian/nanoclaw.git`,
       { cwd: projectDir, stdio: 'pipe' },
     );
     // We can't actually fetch from GitHub in tests, but we can verify

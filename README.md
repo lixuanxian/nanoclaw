@@ -26,12 +26,17 @@ NanoClaw provides that same core functionality, but in a codebase small enough t
 ## Quick Start
 
 ```bash
-git clone https://github.com/qwibitai/NanoClaw.git
+git clone https://github.com/lixuanxian/NanoClaw.git
 cd NanoClaw
-claude
+npm install
+cd web && npm install && cd ..
+npm run build:web
+npm run dev
 ```
 
-Then run `/setup`. Claude Code handles everything: dependencies, authentication, container setup and service configuration.
+Open `http://localhost:3030` to chat with your assistant. Configure your AI provider in Settings → AI Model.
+
+**With Claude Code (optional):** Run `claude` then `/setup` for guided setup including WhatsApp, scheduled tasks, and background service configuration.
 
 ## Philosophy
 
@@ -43,24 +48,26 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 
 **Customization = code changes.** No configuration sprawl. Want different behavior? Modify the code. The codebase is small enough that it's safe to make changes.
 
-**AI-native.**
-- No installation wizard; Claude Code guides setup.
-- No monitoring dashboard; ask Claude what's happening.
-- No debugging tools; describe the problem and Claude fixes it.
+**AI-native.** When Claude Code is available, it guides setup, debugging, and customization. Without it, configure your preferred AI provider in the Settings page and get started immediately.
 
 **Skills over features.** Instead of adding features (e.g. support for Telegram) to the codebase, contributors submit [claude code skills](https://code.claude.com/docs/en/skills) like `/add-telegram` that transform your fork. You end up with clean code that does exactly what you need.
 
-**Best harness, best model.** NanoClaw runs on the Claude Agent SDK, which means you're running Claude Code directly. Claude Code is highly capable and its coding and problem-solving capabilities allow it to modify and expand NanoClaw and tailor it to each user.
+**Best harness, best model.** When using Claude as the AI provider, NanoClaw runs on the Claude Agent SDK for maximum capability. Other providers use their native APIs with full support.
 
 ## What It Supports
 
-- **Messenger I/O** - Message NanoClaw from your phone. Supports WhatsApp, Telegram, Discord, Slack, Signal and headless operation.
-- **Isolated group context** - Each group has its own `CLAUDE.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted to it.
+- **Multi-AI provider** - Claude, DeepSeek, MiniMax, QWEN, DOUBAO, OpenAI-compatible, and Claude-compatible endpoints. Configure from the Settings page or via env vars. Claude is the default when Claude CLI is available locally; otherwise configure any provider to get started
+- **Web chat UI** - React + Ant Design SPA at `http://localhost:3030` with dark/light theme, WebSocket real-time messaging, and session persistence
+- **Password protection** - Optional `ADMIN_PASSWORD` for securing the web UI
+- **Settings page** - Configure AI providers, channels (WhatsApp, Slack, DingTalk) from the browser
+- **Multi-channel with cross-channel sync** - Web chat (default), WhatsApp, Telegram, Discord, Slack, Signal and headless operation. Messages from all channels sync to a shared conversation — the AI sees everything and responds everywhere
+- **Isolated group context** - Each group has its own `CLAUDE.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted to it
 - **Main channel** - Your private channel (self-chat) for admin control; every group is completely isolated
 - **Scheduled tasks** - Recurring jobs that run Claude and can message you back
 - **Web access** - Search and fetch content from the Web
-- **Container isolation** - Agents are sandboxed in Apple Container (macOS) or Docker (macOS/Linux)
-- **Agent Swarms** - Spin up teams of specialized agents that collaborate on complex tasks. NanoClaw is the first personal AI assistant to support agent swarms.
+- **Container isolation** - Agents are sandboxed in Apple Container (macOS) or Docker (macOS/Linux/Windows)
+- **Agent Swarms** - Spin up teams of specialized agents that collaborate on complex tasks
+- **A2A protocol** - Agent Card discovery at `/.well-known/agent-card.json`
 - **Optional integrations** - Add Gmail (`/add-gmail`) and more via skills
 
 ## Usage
@@ -105,30 +112,36 @@ Users then run `/add-telegram` on their fork and get clean code that does exactl
 
 Skills we'd like to see:
 
-**Communication Channels**
-- `/add-slack` - Add Slack
-
 **Session Management**
 - `/clear` - Add a `/clear` command that compacts the conversation (summarizes context while preserving critical information in the same session). Requires figuring out how to trigger compaction programmatically via the Claude Agent SDK.
 
 ## Requirements
 
-- macOS or Linux
+- macOS, Linux, or Windows
 - Node.js 20+
-- [Claude Code](https://claude.ai/download)
-- [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
+- [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux/Windows)
+- An AI provider API key (configure in Settings), or [Claude Code](https://claude.ai/download) (auto-detected as default)
 
 ## Architecture
 
 ```
-WhatsApp (baileys) --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
+                    ┌─── Web Chat
+                    │
+AI Agent ◄──► NanoClaw ──┼─── Slack
+                    │
+                    ├─── WhatsApp
+                    │
+                    └─── DingTalk / ...
 ```
 
-Single Node.js process. Agents execute in isolated Linux containers with filesystem isolation. Only mounted directories are accessible. Per-group message queue with concurrency control. IPC via filesystem.
+Single Node.js process. Channels are config-driven (`CHANNELS=web,whatsapp,slack`). All channels sharing the default folder sync to a single conversation — the AI agent sees messages from every channel and broadcasts responses back to all of them. Agents execute in isolated Linux containers with filesystem isolation. Only mounted directories are accessible. Per-folder message queue with concurrency control. IPC via filesystem.
 
 Key files:
 - `src/index.ts` - Orchestrator: state, message loop, agent invocation
-- `src/channels/whatsapp.ts` - WhatsApp connection, auth, send/receive
+- `src/web-server.ts` - Hono HTTP server, WebSocket, auth, static SPA serving
+- `web/` - React + Ant Design SPA (Chat, Settings, Login)
+- `src/channels/web.ts` - Web channel (browser chat via WebSocket)
+- `src/channels/whatsapp.ts` - WhatsApp channel (Baileys)
 - `src/ipc.ts` - IPC watcher and task processing
 - `src/router.ts` - Message formatting and outbound routing
 - `src/group-queue.ts` - Per-group queue with global concurrency limit
@@ -141,7 +154,11 @@ Key files:
 
 **Why Docker?**
 
-Docker provides cross-platform support (macOS, Linux and even Windows via WSL2) and a mature ecosystem. On macOS, you can optionally switch to Apple Container via `/convert-to-apple-container` for a lighter-weight native runtime.
+Docker provides cross-platform support (macOS, Linux and even Windows via Docker Desktop) and a mature ecosystem. On macOS, you can optionally switch to Apple Container via `/convert-to-apple-container` for a lighter-weight native runtime.
+
+**Can I run this on Windows?**
+
+Yes. Docker Desktop with WSL2 backend works on Windows. Just run `/setup`.
 
 **Can I run this on Linux?**
 
