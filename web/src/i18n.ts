@@ -6,6 +6,12 @@ type Lang = 'en' | 'zh-CN' | 'system';
 const translations: Record<string, Record<string, string>> = {
   en: {
     'chat.placeholder': 'Type a message...',
+    'chat.eg1': '@Andy send an overview of the sales pipeline every weekday morning at 9am',
+    'chat.eg2': '@Andy review the git history for the past week each Friday and update the README if there\'s drift',
+    'chat.eg3': '@Andy every Monday at 8am, compile news on AI developments from Hacker News and TechCrunch and message me a briefing',
+    'chat.eg4': '@Andy list all scheduled tasks across groups',
+    'chat.eg5': '@Andy pause the Monday briefing task',
+    'chat.eg6': '@Andy join the Family Chat group',
     'chat.send': 'Send',
     'chat.newChat': 'New Chat',
     'chat.deleteConfirm': 'Delete this conversation?',
@@ -115,6 +121,12 @@ const translations: Record<string, Record<string, string>> = {
   },
   'zh-CN': {
     'chat.placeholder': '输入消息...',
+    'chat.eg1': '@Andy 每个工作日早上 9 点发送销售管线概览',
+    'chat.eg2': '@Andy 每周五回顾过去一周的 git 提交历史，如有偏差则更新 README',
+    'chat.eg3': '@Andy 每周一早上 8 点，汇编 Hacker News 和 TechCrunch 的 AI 发展动态并发送简报',
+    'chat.eg4': '@Andy 列出所有群组的定时任务',
+    'chat.eg5': '@Andy 暂停周一简报任务',
+    'chat.eg6': '@Andy 加入"家庭群"',
     'chat.send': '发送',
     'chat.newChat': '新对话',
     'chat.deleteConfirm': '删除此对话？',

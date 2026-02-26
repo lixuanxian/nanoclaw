@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Input, Button, Upload, Typography, App, Segmented } from 'antd';
 import { SendOutlined, PaperClipOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { uploadFiles } from '../api';
@@ -24,6 +24,14 @@ export function MessageInput({ sessionId, onSend, disabled }: Props) {
   const [mode, setMode] = useState<'plan' | 'edit'>('edit');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const EG_KEYS = ['chat.eg1', 'chat.eg2', 'chat.eg3', 'chat.eg4', 'chat.eg5', 'chat.eg6'];
+  const [egIndex, setEgIndex] = useState(() => Math.floor(Math.random() * EG_KEYS.length));
+  useEffect(() => {
+    const id = setInterval(() => setEgIndex((i) => (i + 1) % EG_KEYS.length), 5000);
+    return () => clearInterval(id);
+  }, []);
+  const placeholder = text ? '' : t(EG_KEYS[egIndex]);
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
     const files = Array.from(fileList);
@@ -132,7 +140,7 @@ export function MessageInput({ sessionId, onSend, disabled }: Props) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={t('chat.placeholder')}
+          placeholder={placeholder}
           autoSize={{ minRows: 1, maxRows: 6 }}
           disabled={disabled}
           className="chat-input-textarea"
