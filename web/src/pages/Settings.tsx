@@ -60,14 +60,36 @@ interface Props {
   setThemeMode: (mode: ThemeMode) => void;
 }
 
-const CHANNEL_STATUS_COLORS: Record<string, string> = {
-  connected: 'green',
-  authenticated: 'green',
-  configured: 'orange',
+const STATUS_DOT: Record<string, string> = {
+  connected: 'success',
+  authenticated: 'success',
+  configured: 'warning',
   not_configured: 'default',
   connecting: 'processing',
   qr_ready: 'processing',
+  error: 'error',
 };
+
+// Providers that only need a model field (uses CLI credentials)
+const CLI_ONLY_PROVIDERS = new Set(['claude']);
+
+/** Compute Badge status for an AI provider. */
+function providerStatus(
+  id: string,
+  defaultProvider: string,
+  config: { model?: string; api_base?: string; api_key?: string } | undefined,
+): string {
+  const isDefault = id === defaultProvider;
+  const hasKey = !!config?.api_key;
+  const hasConfig = !!(config?.model || config?.api_base || config?.api_key);
+
+  if (isDefault) {
+    // Claude CLI doesn't need API key
+    if (CLI_ONLY_PROVIDERS.has(id)) return 'success';
+    return hasKey ? 'success' : 'error';
+  }
+  return hasConfig ? 'warning' : 'default';
+}
 
 const TAB_SLUG_TO_KEY: Record<string, string> = {
   'ai-model': 'ai',
@@ -200,10 +222,12 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
                 onChange={(val) => setSelectedProvider(val as string)}
                 options={providers.map((p) => {
                   const Icon = PROVIDER_ICONS[p.id];
+                  const dot = providerStatus(p.id, defaultProvider, providerConfigs[p.id]);
                   return {
                     value: p.id,
                     label: (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Badge status={dot as 'success'} />
                         {Icon && <Icon size={14} />}
                         {p.name}
                       </span>
@@ -266,7 +290,7 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
                     value: ch.id,
                     label: (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <Badge status={(CHANNEL_STATUS_COLORS[ch.status] || 'default') as 'success'} />
+                        <Badge status={(STATUS_DOT[ch.status] || 'default') as 'success'} />
                         {Icon && <Icon size={14} />}
                         {ch.name}
                       </span>

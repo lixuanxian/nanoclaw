@@ -1,5 +1,6 @@
 import { ASSISTANT_NAME } from './config.js';
 import { getDb } from './db-init.js';
+import { logger } from './logger.js';
 import { NewMessage } from './types.js';
 
 /**
@@ -182,4 +183,137 @@ export function getMessagesBeforeMultiJid(jids: string[], before: string, limit:
     ORDER BY timestamp DESC
     LIMIT ?
   `).all(...jids, before, limit).reverse() as NewMessage[];
+}
+
+// --- Full-text search ---
+
+export interface SearchResult {
+  id: string;
+  chat_jid: string;
+  sender_name: string;
+  content: string;
+  timestamp: string;
+  is_bot_message: number;
+  snippet: string;
+}
+
+/** Check if a string contains CJK characters (Chinese, Japanese, Korean). */
+function hasCJK(text: string): boolean {
+  // CJK Unified Ideographs, Hiragana, Katakana, Hangul, CJK extensions
+  return /[\u2E80-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF]/.test(text);
+}
+
+/** Escape a string for safe use in SQL LIKE patterns. */
+function escapeLike(text: string): string {
+  return text.replace(/[%_\\]/g, '\\$&');
+}
+
+/** Build a snippet with <mark> highlighting around the matched term. */
+function highlightSnippet(content: string, query: string, contextChars = 60): string {
+  const lower = content.toLowerCase();
+  const qLower = query.toLowerCase();
+  const idx = lower.indexOf(qLower);
+  if (idx === -1) {
+    return content.length > contextChars * 2 ? content.slice(0, contextChars * 2) + '...' : content;
+  }
+  const start = Math.max(0, idx - contextChars);
+  const end = Math.min(content.length, idx + query.length + contextChars);
+  const before = (start > 0 ? '...' : '') + content.slice(start, idx);
+  const match = content.slice(idx, idx + query.length);
+  const after = content.slice(idx + query.length, end) + (end < content.length ? '...' : '');
+  return `${before}<mark>${match}</mark>${after}`;
+}
+
+/** LIKE-based search for CJK text where FTS5 unicode61 tokenizer fails. */
+function searchMessagesLike(
+  query: string,
+  jids: string[] | undefined,
+  limit: number,
+  offset: number,
+): SearchResult[] {
+  const db = getDb();
+  const pattern = `%${escapeLike(query)}%`;
+  const params: unknown[] = [];
+
+  let jidFilter = '';
+  if (jids && jids.length > 0) {
+    const placeholders = jids.map(() => '?').join(',');
+    jidFilter = `AND m.chat_jid IN (${placeholders})`;
+    params.push(...jids);
+  }
+
+  const sql = `
+    SELECT m.id, m.chat_jid, m.sender_name, m.content, m.timestamp, m.is_bot_message
+    FROM messages m
+    WHERE (m.content LIKE ? ESCAPE '\\' OR m.sender_name LIKE ? ESCAPE '\\')
+      ${jidFilter}
+    ORDER BY m.timestamp DESC
+    LIMIT ? OFFSET ?
+  `;
+  params.unshift(pattern, pattern);
+  params.push(limit, offset);
+
+  const rows = db.prepare(sql).all(...params) as Omit<SearchResult, 'snippet'>[];
+  return rows.map((r) => ({
+    ...r,
+    snippet: highlightSnippet(r.content, query),
+  }));
+}
+
+/** Full-text search across messages. Optionally scoped to specific JIDs. */
+export function searchMessages(
+  query: string,
+  jids?: string[],
+  limit = 20,
+  offset = 0,
+): SearchResult[] {
+  // CJK text: unicode61 tokenizer can't segment properly, use LIKE instead
+  if (hasCJK(query)) {
+    return searchMessagesLike(query, jids, limit, offset);
+  }
+
+  const db = getDb();
+
+  // Escape FTS5 special characters and operators
+  const safeQuery = query
+    .replace(/['"*(){}[\]^~:\\+\-]/g, ' ')
+    .replace(/\b(AND|OR|NOT|NEAR)\b/gi, '')
+    .trim();
+  if (!safeQuery) return [];
+
+  let sql: string;
+  const params: unknown[] = [];
+
+  if (jids && jids.length > 0) {
+    const placeholders = jids.map(() => '?').join(',');
+    sql = `
+      SELECT m.id, m.chat_jid, m.sender_name, m.content, m.timestamp, m.is_bot_message,
+             snippet(messages_fts, 0, '<mark>', '</mark>', '...', 64) as snippet
+      FROM messages_fts fts
+      JOIN messages m ON m.rowid = fts.rowid
+      WHERE messages_fts MATCH ?
+        AND m.chat_jid IN (${placeholders})
+      ORDER BY rank
+      LIMIT ? OFFSET ?
+    `;
+    params.push(safeQuery, ...jids, limit, offset);
+  } else {
+    sql = `
+      SELECT m.id, m.chat_jid, m.sender_name, m.content, m.timestamp, m.is_bot_message,
+             snippet(messages_fts, 0, '<mark>', '</mark>', '...', 64) as snippet
+      FROM messages_fts fts
+      JOIN messages m ON m.rowid = fts.rowid
+      WHERE messages_fts MATCH ?
+      ORDER BY rank
+      LIMIT ? OFFSET ?
+    `;
+    params.push(safeQuery, limit, offset);
+  }
+
+  try {
+    return db.prepare(sql).all(...params) as SearchResult[];
+  } catch (err) {
+    logger.warn({ err, query: safeQuery }, 'FTS5 search failed, falling back to LIKE');
+    return searchMessagesLike(query, jids, limit, offset);
+  }
 }

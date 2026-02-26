@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Lobster body gradient -->
+    <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5EEACD;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2CC5A7;stop-opacity:1" />
+    </linearGradient>
+    <!-- Bubble gradient -->
+    <radialGradient id="bubbleGrad" cx="40%" cy="35%" r="60%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#5EEACD;stop-opacity:0.15" />
+    </radialGradient>
+    <!-- Chat bubble fill -->
+    <linearGradient id="chatGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.95" />
+      <stop offset="100%" style="stop-color:#E0FFF7;stop-opacity:0.9" />
+    </linearGradient>
+  </defs>
+
+  <!-- === LOBSTER BODY === -->
+  <!-- Main body / head - egg shape -->
+  <ellipse cx="220" cy="220" rx="105" ry="120"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="14" stroke-linejoin="round"/>
+
+  <!-- Body highlight -->
+  <ellipse cx="200" cy="190" rx="35" ry="45"
+    fill="#7AFCE0" opacity="0.35"/>
+
+  <!-- === ANTENNAE === -->
+  <path d="M195 108 Q180 55 160 35" fill="none" stroke="#1B2A4E" stroke-width="10" stroke-linecap="round"/>
+  <path d="M245 108 Q260 55 280 40" fill="none" stroke="#1B2A4E" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- === EYES === -->
+  <!-- Left eye -->
+  <circle cx="190" cy="210" r="16" fill="#1B2A4E"/>
+  <circle cx="185" cy="204" r="6" fill="#FFFFFF"/>
+  <!-- Right eye -->
+  <circle cx="252" cy="210" r="16" fill="#1B2A4E"/>
+  <circle cx="247" cy="204" r="6" fill="#FFFFFF"/>
+
+  <!-- === SMILE === -->
+  <path d="M210 240 Q222 255 235 240" fill="none" stroke="#1B2A4E" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- === RAISED CLAW (right/waving) === -->
+  <path d="M310 200 Q340 165 360 140"
+    fill="none" stroke="#1B2A4E" stroke-width="12" stroke-linecap="round"/>
+  <!-- Claw pincer -->
+  <path d="M355 145 Q370 120 365 105 Q355 100 345 115 Q340 130 355 145Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="8"/>
+  <path d="M355 145 Q380 130 390 115 Q385 105 370 115 Q358 128 355 145Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="8"/>
+
+  <!-- === LOWER CLAW (left) === -->
+  <path d="M140 280 Q115 310 100 320"
+    fill="none" stroke="#1B2A4E" stroke-width="12" stroke-linecap="round"/>
+  <!-- Claw pincer (smaller) -->
+  <path d="M105 315 Q90 300 80 295 Q75 302 85 315 Q95 325 105 315Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="7"/>
+  <path d="M105 315 Q95 335 85 340 Q80 335 88 322 Q96 312 105 315Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="7"/>
+
+  <!-- === TAIL SEGMENTS === -->
+  <!-- Segment 1 -->
+  <path d="M175 330 Q215 345 255 330 Q265 355 250 370 Q215 380 180 370 Q165 355 175 330Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="10"/>
+  <!-- Segment 2 -->
+  <path d="M185 365 Q215 378 245 365 Q252 385 240 400 Q215 408 190 400 Q178 385 185 365Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="9"/>
+  <!-- Segment 3 -->
+  <path d="M193 395 Q215 406 237 395 Q243 412 233 425 Q215 432 197 425 Q187 412 193 395Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="8"/>
+  <!-- Tail fan -->
+  <path d="M200 420 Q180 450 165 460 Q175 465 195 455 Q212 445 215 430Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="7"/>
+  <path d="M230 420 Q250 450 265 460 Q255 465 235 455 Q218 445 215 430Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="7"/>
+  <path d="M210 422 Q215 455 215 468 Q210 460 208 440Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="5"/>
+  <path d="M220 422 Q215 455 215 468 Q220 460 222 440Z"
+    fill="url(#bodyGrad)" stroke="#1B2A4E" stroke-width="5"/>
+
+  <!-- === CHAT BUBBLES (conversation theme) === -->
+  <!-- Main chat bubble (larger, with tail pointing to lobster mouth) -->
+  <rect x="330" y="195" rx="22" ry="22" width="145" height="90"
+    fill="url(#chatGrad)" stroke="#1B2A4E" stroke-width="7"/>
+  <!-- Chat bubble tail -->
+  <polygon points="340,260 320,280 355,270"
+    fill="url(#chatGrad)" stroke="#1B2A4E" stroke-width="5"/>
+  <!-- Cover the bubble-tail joint line -->
+  <rect x="342" y="256" width="20" height="8" fill="url(#chatGrad)"/>
+
+  <!-- Typing dots inside main bubble -->
+  <circle cx="375" cy="240" r="10" fill="#1B2A4E" opacity="0.6">
+    <animate attributeName="opacity" values="0.3;0.8;0.3" dur="1.2s" repeatCount="indefinite" begin="0s"/>
+  </circle>
+  <circle cx="403" cy="240" r="10" fill="#1B2A4E" opacity="0.6">
+    <animate attributeName="opacity" values="0.3;0.8;0.3" dur="1.2s" repeatCount="indefinite" begin="0.3s"/>
+  </circle>
+  <circle cx="431" cy="240" r="10" fill="#1B2A4E" opacity="0.6">
+    <animate attributeName="opacity" values="0.3;0.8;0.3" dur="1.2s" repeatCount="indefinite" begin="0.6s"/>
+  </circle>
+
+  <!-- Small floating bubbles (representing "blowing bubbles") -->
+  <circle cx="350" cy="170" r="14" fill="url(#bubbleGrad)" stroke="#1B2A4E" stroke-width="4" opacity="0.7">
+    <animate attributeName="cy" values="170;155;170" dur="2.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.7;0.4;0.7" dur="2.5s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="390" cy="150" r="10" fill="url(#bubbleGrad)" stroke="#1B2A4E" stroke-width="3" opacity="0.5">
+    <animate attributeName="cy" values="150;132;150" dur="3s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.5;0.25;0.5" dur="3s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="430" cy="165" r="8" fill="url(#bubbleGrad)" stroke="#1B2A4E" stroke-width="2.5" opacity="0.4">
+    <animate attributeName="cy" values="165;148;165" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.4;0.2;0.4" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="460" cy="145" r="6" fill="url(#bubbleGrad)" stroke="#1B2A4E" stroke-width="2" opacity="0.3">
+    <animate attributeName="cy" values="145;130;145" dur="2.8s" repeatCount="indefinite"/>
+  </circle>
+</svg>

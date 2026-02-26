@@ -428,3 +428,15 @@ body {
 .msg-embed-image:hover {
   opacity: 0.9;
 }
+
+/* ── Search highlight animation ── */
+
+@keyframes msg-flash {
+  0%   { background: var(--ant-color-primary-bg); }
+  100% { background: transparent; }
+}
+
+.msg-highlight {
+  animation: msg-flash 2.5s ease-out;
+  border-radius: 8px;
+}

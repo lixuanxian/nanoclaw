@@ -18,6 +18,9 @@ interface Props {
   olderCount: number;
   isTyping: boolean;
   onOlderLoaded: (msgs: Message[], remaining: number) => void;
+  highlightTimestamp?: string | null;
+  searchQuery?: string | null;
+  onHighlightDone?: () => void;
 }
 
 function renderMarkdown(text: string): string {
@@ -104,7 +107,20 @@ function FilePreview({ file }: { file: { name: string; path: string; type: strin
   );
 }
 
-function MessageBubble({ msg }: { msg: Message }) {
+/** Inject <mark> around keyword matches in HTML, only touching text nodes (not tags/attributes). */
+function highlightKeywords(html: string, query: string): string {
+  const keywords = query.trim().split(/\s+/).filter(Boolean);
+  if (keywords.length === 0) return html;
+  const escaped = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi');
+  // Replace only in text segments, skip HTML tags
+  return html.replace(/(<[^>]*>)|([^<]+)/g, (_match, tag: string, text: string) => {
+    if (tag) return tag;
+    return text.replace(pattern, '<mark>$1</mark>');
+  });
+}
+
+function MessageBubble({ msg, highlight, searchQuery }: { msg: Message; highlight?: boolean; searchQuery?: string }) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
   const isUser = !msg.is_bot;
@@ -129,7 +145,7 @@ function MessageBubble({ msg }: { msg: Message }) {
       )}
       <div
         className="msg-markdown"
-        dangerouslySetInnerHTML={{ __html: renderMarkdown(displayContent) }}
+        dangerouslySetInnerHTML={{ __html: searchQuery ? highlightKeywords(renderMarkdown(displayContent), searchQuery) : renderMarkdown(displayContent) }}
       />
       {needsTruncation && (
         <Button type="link" size="small" onClick={() => setExpanded(!expanded)} style={{ padding: 0, height: 'auto' }}>
@@ -145,7 +161,10 @@ function MessageBubble({ msg }: { msg: Message }) {
   );
 
   return (
-    <div className={`msg-row ${isUser ? 'msg-row-user' : 'msg-row-bot'}`}>
+    <div
+      className={`msg-row ${isUser ? 'msg-row-user' : 'msg-row-bot'}${highlight ? ' msg-highlight' : ''}`}
+      data-timestamp={msg.timestamp}
+    >
       {!isUser && (
         <div className="msg-avatar msg-avatar-bot">
           <RobotOutlined />
@@ -172,19 +191,32 @@ function MessageBubble({ msg }: { msg: Message }) {
   );
 }
 
-export function MessageList({ messages, sessionId, jid, olderCount, isTyping, onOlderLoaded }: Props) {
+export function MessageList({ messages, sessionId, jid, olderCount, isTyping, onOlderLoaded, highlightTimestamp, searchQuery, onHighlightDone }: Props) {
   const { t } = useT();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const shouldAutoScroll = useRef(true);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages (skip when highlighting a search result)
   useEffect(() => {
-    if (shouldAutoScroll.current) {
+    if (shouldAutoScroll.current && !highlightTimestamp) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isTyping]);
+  }, [messages, isTyping, highlightTimestamp]);
+
+  // Scroll to highlighted message when it appears in the list
+  useEffect(() => {
+    if (!highlightTimestamp || !containerRef.current) return;
+    const el = containerRef.current.querySelector(`[data-timestamp="${CSS.escape(highlightTimestamp)}"]`) as HTMLElement | null;
+    if (el) {
+      shouldAutoScroll.current = false;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Clear highlight after animation
+      const timer = setTimeout(() => onHighlightDone?.(), 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightTimestamp, messages, onHighlightDone]);
 
   // Track scroll position to decide auto-scroll
   const handleScroll = useCallback(() => {
@@ -224,7 +256,12 @@ export function MessageList({ messages, sessionId, jid, olderCount, isTyping, on
       )}
 
       {messages.map((msg, i) => (
-        <MessageBubble key={`${msg.timestamp}-${i}`} msg={msg} />
+        <MessageBubble
+          key={`${msg.timestamp}-${i}`}
+          msg={msg}
+          highlight={highlightTimestamp === msg.timestamp}
+          searchQuery={highlightTimestamp === msg.timestamp ? searchQuery ?? undefined : undefined}
+        />
       ))}
 
       {isTyping && (

@@ -1,4 +1,4 @@
-import { getDb } from './db-init.js';
+import { getDb, rebuildFtsIndex } from './db-init.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import { NewMessage, RegisteredGroup } from './types.js';
@@ -354,7 +354,19 @@ export function deleteConversation(jid: string): void {
   const row = getDb().prepare('SELECT folder FROM registered_groups WHERE jid = ?').get(jid) as { folder: string } | undefined;
   const folder = row?.folder;
 
-  getDb().prepare('DELETE FROM messages WHERE chat_jid = ?').run(jid);
+  try {
+    getDb().prepare('DELETE FROM messages WHERE chat_jid = ?').run(jid);
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code;
+    if (code === 'SQLITE_CORRUPT_VTAB' || code === 'SQLITE_CORRUPT') {
+      logger.warn({ jid, code }, 'FTS index corrupted, rebuilding and retrying delete');
+      rebuildFtsIndex();
+      getDb().prepare('DELETE FROM messages WHERE chat_jid = ?').run(jid);
+    } else {
+      throw err;
+    }
+  }
+
   getDb().prepare('DELETE FROM chats WHERE jid = ?').run(jid);
   getDb().prepare('DELETE FROM registered_groups WHERE jid = ?').run(jid);
 

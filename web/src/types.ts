@@ -68,6 +68,57 @@ export interface SkillInfo {
   enabled: boolean;
 }
 
+export interface RegisteredGroupInfo {
+  jid: string;
+  name: string;
+  folder: string;
+  trigger: string;
+  added_at: string;
+  requiresTrigger: boolean;
+  containerConfig: { provider?: string; model?: string } | null;
+}
+
+export interface ScheduledTaskInfo {
+  id: string;
+  group_folder: string;
+  chat_jid: string;
+  prompt: string;
+  schedule_type: 'cron' | 'interval' | 'once';
+  schedule_value: string;
+  context_mode: 'group' | 'isolated';
+  next_run: string | null;
+  last_run: string | null;
+  last_result: string | null;
+  status: 'active' | 'paused' | 'completed';
+  created_at: string;
+}
+
+export interface TaskRunLogInfo {
+  task_id: string;
+  run_at: string;
+  duration_ms: number;
+  status: 'success' | 'error';
+  result: string | null;
+  error: string | null;
+}
+
+export interface SearchResult {
+  id: string;
+  chatJid: string;
+  sender: string;
+  content: string;
+  timestamp: string;
+  isBot: boolean;
+  snippet: string;
+}
+
+export interface DeleteInfo {
+  folder: string | null;
+  isLastJid: boolean;
+  hasFiles: boolean;
+  taskCount: number;
+}
+
 export type ThemeMode = 'system' | 'dark' | 'light';
 
 export interface WsMessage {

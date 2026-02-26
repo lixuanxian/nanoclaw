@@ -32,6 +32,9 @@ export function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/settings/:tab?" element={<SettingsPage themeMode={themeMode} setThemeMode={setThemeMode} />} />
+              <Route path="/agent-chat/:jid?" element={<ChatPage themeMode={themeMode} setThemeMode={setThemeMode} />} />
+              <Route path="/task/:taskId?" element={<ChatPage themeMode={themeMode} setThemeMode={setThemeMode} />} />
+              <Route path="/workspace/:folder?" element={<ChatPage themeMode={themeMode} setThemeMode={setThemeMode} />} />
               <Route path="/" element={<ChatPage themeMode={themeMode} setThemeMode={setThemeMode} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

@@ -151,6 +151,110 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* columns already exist */
   }
+
+  // FTS5 full-text search index for messages
+  try {
+    database.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+        content,
+        sender_name,
+        content='messages',
+        content_rowid='rowid',
+        tokenize='unicode61'
+      );
+    `);
+
+    // Sync triggers
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, content, sender_name)
+        VALUES (new.rowid, new.content, new.sender_name);
+      END;
+    `);
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, content, sender_name)
+        VALUES ('delete', old.rowid, old.content, old.sender_name);
+      END;
+    `);
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, content, sender_name)
+        VALUES ('delete', old.rowid, old.content, old.sender_name);
+        INSERT INTO messages_fts(rowid, content, sender_name)
+        VALUES (new.rowid, new.content, new.sender_name);
+      END;
+    `);
+
+    // Backfill existing messages (only if FTS table is empty)
+    const ftsCount = database.prepare('SELECT COUNT(*) as cnt FROM messages_fts').get() as { cnt: number };
+    if (ftsCount.cnt === 0) {
+      const msgCount = database.prepare('SELECT COUNT(*) as cnt FROM messages').get() as { cnt: number };
+      if (msgCount.cnt > 0) {
+        database.exec(`
+          INSERT INTO messages_fts(rowid, content, sender_name)
+          SELECT rowid, content, sender_name FROM messages;
+        `);
+        logger.info({ count: msgCount.cnt }, 'Backfilled FTS index');
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, 'FTS5 setup failed, search will be unavailable');
+  }
+}
+
+/**
+ * Drop and recreate the FTS5 index. Call this to recover from corruption.
+ * Drops triggers first so concurrent deletes don't crash.
+ */
+export function rebuildFtsIndex(): void {
+  const database = getDb();
+  logger.warn('Rebuilding FTS5 index due to corruption');
+
+  // Drop triggers first to prevent cascading errors
+  database.exec('DROP TRIGGER IF EXISTS messages_fts_ai');
+  database.exec('DROP TRIGGER IF EXISTS messages_fts_ad');
+  database.exec('DROP TRIGGER IF EXISTS messages_fts_au');
+  database.exec('DROP TABLE IF EXISTS messages_fts');
+
+  // Recreate
+  database.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      content, sender_name,
+      content='messages', content_rowid='rowid',
+      tokenize='unicode61'
+    );
+  `);
+  database.exec(`
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, content, sender_name)
+      VALUES (new.rowid, new.content, new.sender_name);
+    END;
+  `);
+  database.exec(`
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content, sender_name)
+      VALUES ('delete', old.rowid, old.content, old.sender_name);
+    END;
+  `);
+  database.exec(`
+    CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content, sender_name)
+      VALUES ('delete', old.rowid, old.content, old.sender_name);
+      INSERT INTO messages_fts(rowid, content, sender_name)
+      VALUES (new.rowid, new.content, new.sender_name);
+    END;
+  `);
+
+  // Backfill
+  const msgCount = database.prepare('SELECT COUNT(*) as cnt FROM messages').get() as { cnt: number };
+  if (msgCount.cnt > 0) {
+    database.exec(`
+      INSERT INTO messages_fts(rowid, content, sender_name)
+      SELECT rowid, content, sender_name FROM messages;
+    `);
+  }
+  logger.info({ messages: msgCount.cnt }, 'FTS5 index rebuilt successfully');
 }
 
 export function initDatabase(): void {

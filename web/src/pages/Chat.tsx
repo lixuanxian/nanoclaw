@@ -1,15 +1,18 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Layout, Typography, Button, Badge } from 'antd';
 import { SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useWebSocket, type ConnectionStatus } from '../ws';
 import { useT } from '../i18n';
-import { getAIConfig, getChannels } from '../api';
+import { getAIConfig, getChannels, createSession, getHistoryAround } from '../api';
 import { CHANNEL_ICONS } from '../components/Icons';
 import type { ChannelInfo } from '../types';
-import { SessionList } from '../components/SessionList';
+import { Sidebar } from '../components/Sidebar';
 import { MessageList } from '../components/MessageList';
 import { MessageInput } from '../components/MessageInput';
+import { TaskRunView } from '../components/TaskRunView';
+import { FileBrowser } from '../components/FileBrowser';
+import { SearchPopover } from '../components/SearchPopover';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { LanguageToggle } from '../components/LanguageToggle';
 import type { Message, ThemeMode, UploadedFile } from '../types';
@@ -39,6 +42,8 @@ const statusColors: Record<ConnectionStatus, string> = {
 export function ChatPage({ themeMode, setThemeMode }: Props) {
   const { t, lang, setLang } = useT();
   const navigate = useNavigate();
+  const params = useParams<{ jid?: string; taskId?: string; folder?: string }>();
+  const location = useLocation();
 
   const [sessionId, setSessionId] = useState<string>(
     () => localStorage.getItem('nanoclaw_session') || generateSessionId(),
@@ -49,8 +54,39 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   const [isTyping, setIsTyping] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
+  const [activeWorkspaceFolder, setActiveWorkspaceFolder] = useState<string | null>(null);
   const [modelInfo, setModelInfo] = useState('—');
   const [connectedChannels, setConnectedChannels] = useState<ChannelInfo[]>([]);
+  const [highlightTimestamp, setHighlightTimestamp] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
+
+  // Sync URL params → state on mount / URL change
+  useEffect(() => {
+    if (location.pathname.startsWith('/workspace')) {
+      setViewingTaskId(null);
+      setActiveWorkspaceFolder(params.folder || null);
+    } else if (location.pathname.startsWith('/task')) {
+      setActiveWorkspaceFolder(null);
+      if (params.taskId) setViewingTaskId(params.taskId);
+    } else if (location.pathname.startsWith('/agent-chat')) {
+      setViewingTaskId(null);
+      setActiveWorkspaceFolder(null);
+      if (params.jid) {
+        const jid = decodeURIComponent(params.jid);
+        const sid = jid.includes('@') ? jid.split('@')[0] : jid;
+        setActiveJid(jid);
+        localStorage.setItem('nanoclaw_session', sid);
+        setSessionId(sid);
+        setMessages([]);
+        setOlderCount(0);
+        setIsTyping(false);
+      } else {
+        // No JID in URL — derive from current sessionId for list highlighting
+        setActiveJid(`${sessionId}@web.nanoclaw`);
+      }
+    }
+  }, [location.pathname, params.jid, params.taskId, params.folder]);
 
   // Stable refs for WS callbacks to avoid reconnection loops
   const messagesRef = useRef(messages);
@@ -127,17 +163,46 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
     setIsTyping(false);
   };
 
-  const handleNewChat = () => {
-    updateSession(generateSessionId());
-    setActiveJid(null);
+  const handleNewChat = async () => {
+    const newId = generateSessionId();
+    const jid = `${newId}@web.nanoclaw`;
+    updateSession(newId);
+    setActiveJid(jid);
+    setViewingTaskId(null);
+    navigate(`/agent-chat/${encodeURIComponent(jid)}`, { replace: true });
+    // Create session on the server first so it exists in the DB before the list refreshes
+    await createSession(newId).catch(() => {});
     setRefreshKey((k) => k + 1);
   };
 
-  const handleSelectSession = (jid: string, _name: string) => {
+  const handleSelectSession = (jid: string, _name: string, messageTimestamp?: string, query?: string) => {
     // Extract session ID from JID (format: sessionId@web.nanoclaw)
     const sid = jid.includes('@') ? jid.split('@')[0] : jid;
     setActiveJid(jid);
+    setViewingTaskId(null);
+    setHighlightTimestamp(messageTimestamp ?? null);
+    setSearchQuery(query ?? null);
     updateSession(sid);
+    navigate(`/agent-chat/${encodeURIComponent(jid)}`, { replace: true });
+
+    // If navigating to a specific message, load messages around its timestamp
+    if (messageTimestamp) {
+      getHistoryAround(sid, messageTimestamp, jid).then((data) => {
+        setMessages(data.messages);
+        setOlderCount(data.olderCount);
+      }).catch(() => {});
+    }
+  };
+
+  const handleSelectTask = (taskId: string) => {
+    setViewingTaskId(taskId);
+    navigate(`/task/${encodeURIComponent(taskId)}`, { replace: true });
+  };
+
+  const handleSelectFolder = (folder: string) => {
+    setActiveWorkspaceFolder(folder);
+    setViewingTaskId(null);
+    navigate(`/workspace/${encodeURIComponent(folder)}`, { replace: true });
   };
 
   const handleSend = (text: string, files?: UploadedFile[], mode?: 'plan' | 'edit', skills?: string[]) => {
@@ -167,7 +232,7 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   return (
     <Layout style={{  height: 'calc(100vh)' }}>
       <Sider
-        width={280}
+        width={320}
         collapsedWidth={0}
         collapsed={collapsed}
         trigger={null}
@@ -177,10 +242,14 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
           padding: '10px 0px 10px 10px',
         }}
       >
-        <SessionList
+        <Sidebar
           activeJid={activeJid}
+          activeTaskId={viewingTaskId}
+          activeFolder={activeWorkspaceFolder}
           onSelect={handleSelectSession}
           onNewChat={handleNewChat}
+          onSelectTask={handleSelectTask}
+          onSelectFolder={handleSelectFolder}
           refreshKey={refreshKey}
         />
       </Sider>
@@ -230,58 +299,72 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
 
           <div style={{ flex: 1 }} />
 
+          <SearchPopover onNavigate={handleSelectSession} />
           <LanguageToggle lang={lang} setLang={setLang} />
           <ThemeToggle themeMode={themeMode} setThemeMode={setThemeMode} />
           <Button type="text" icon={<SettingOutlined />} onClick={() => navigate('/settings/ai-model')} />
         </Header>
 
         <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ant-color-bg-layout)' }}>
-          {messages.length === 0 && !isTyping ? (
-            <div style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
-              padding: 24,
-              gap: 16,
-            }}>
-              <Typography.Title level={4} type="secondary">NanoClaw</Typography.Title>
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 8,
-                justifyContent: 'center',
-                maxWidth: 600,
-              }}>
-                {SUGGESTIONS.map((key) => (
-                  <Button
-                    key={key}
-                    size="small"
-                    onClick={() => handleSuggestion(key)}
-                    style={{ maxWidth: 280, whiteSpace: 'normal', height: 'auto', textAlign: 'left', padding: '8px 12px' }}
-                  >
-                    <Text style={{ fontSize: 12 }}>{t(key)}</Text>
-                  </Button>
-                ))}
-              </div>
+          {activeWorkspaceFolder ? (
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              <FileBrowser folder={activeWorkspaceFolder} />
             </div>
+          ) : viewingTaskId ? (
+            <TaskRunView taskId={viewingTaskId} onBack={() => { setViewingTaskId(null); navigate('/agent-chat', { replace: true }); }} />
           ) : (
-            <MessageList
-              messages={messages}
-              sessionId={sessionId}
-              jid={activeJid}
-              olderCount={olderCount}
-              isTyping={isTyping}
-              onOlderLoaded={handleOlderLoaded}
-            />
-          )}
+            <>
+              {messages.length === 0 && !isTyping ? (
+                <div style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: 24,
+                  gap: 16,
+                }}>
+                  <Typography.Title level={4} type="secondary">NanoClaw</Typography.Title>
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    justifyContent: 'center',
+                    maxWidth: 600,
+                  }}>
+                    {SUGGESTIONS.map((key) => (
+                      <Button
+                        key={key}
+                        size="small"
+                        onClick={() => handleSuggestion(key)}
+                        style={{ maxWidth: 280, whiteSpace: 'normal', height: 'auto', textAlign: 'left', padding: '8px 12px' }}
+                      >
+                        <Text style={{ fontSize: 12 }}>{t(key)}</Text>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <MessageList
+                  messages={messages}
+                  sessionId={sessionId}
+                  jid={activeJid}
+                  olderCount={olderCount}
+                  isTyping={isTyping}
+                  onOlderLoaded={handleOlderLoaded}
+                  highlightTimestamp={highlightTimestamp}
+                  searchQuery={searchQuery}
+                  onHighlightDone={() => { setHighlightTimestamp(null); setSearchQuery(null); }}
+                />
+              )}
 
-          <MessageInput
-            sessionId={sessionId}
-            onSend={handleSend}
-            disabled={status !== 'connected'}
-          />
+              <MessageInput
+                sessionId={sessionId}
+                onSend={handleSend}
+                disabled={status !== 'connected'}
+              />
+            </>
+          )}
         </Content>
       </Layout>
     </Layout>

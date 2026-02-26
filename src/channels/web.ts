@@ -189,14 +189,10 @@ export class WebChannel implements Channel {
    * Subsequent web sessions ("New Chat") get their own isolated folders.
    */
   private ensureSession(sessionId: string): string {
-    // Check cache
-    const cached = this.sessionJids.get(sessionId);
-    if (cached) return cached;
-
     const jid = `${sessionId}${WEB_JID_SUFFIX}`;
     this.sessionJids.set(sessionId, jid);
 
-    // Check if already registered
+    // Always check registeredGroups — the session may have been deleted
     const groups = this.opts.registeredGroups();
     if (!groups[jid]) {
       // Use default sync folder unless another web session already has it
@@ -220,6 +216,24 @@ export class WebChannel implements Channel {
     }
 
     return jid;
+  }
+
+  /**
+   * Create (or ensure) a session and return its JID.
+   * Called from the REST API so the session exists in the DB before the list is refreshed.
+   */
+  createSession(sessionId: string): string {
+    return this.ensureSession(sessionId);
+  }
+
+  /**
+   * Clear cached session data for a deleted JID so ensureSession re-registers if needed.
+   */
+  clearSessionCache(jid: string): void {
+    const sessionId = jid.replace(WEB_JID_SUFFIX, '');
+    this.sessionJids.delete(sessionId);
+    this.sessionModes.delete(sessionId);
+    this.sessionSkills.delete(sessionId);
   }
 
   /**

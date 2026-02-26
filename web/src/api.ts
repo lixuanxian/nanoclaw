@@ -1,4 +1,4 @@
-import type { AIConfig, ChannelInfo, Conversation, HistoryResponse, SkillInfo, UploadedFile } from './types';
+import type { AIConfig, ChannelInfo, Conversation, DeleteInfo, HistoryResponse, RegisteredGroupInfo, ScheduledTaskInfo, SearchResult, SkillInfo, TaskRunLogInfo, UploadedFile } from './types';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { credentials: 'same-origin', ...init });
@@ -35,11 +35,27 @@ export async function getConversations(): Promise<Conversation[]> {
   return Array.isArray(data.conversations) ? data.conversations : [];
 }
 
-export async function deleteConversation(jid: string): Promise<void> {
-  await request(`/api/conversations/${encodeURIComponent(jid)}`, { method: 'DELETE' });
+export async function getDeleteInfo(jid: string): Promise<DeleteInfo> {
+  return request(`/api/conversations/${encodeURIComponent(jid)}/delete-info`);
+}
+
+export async function deleteConversation(jid: string, deleteFiles = false): Promise<void> {
+  await request(`/api/conversations/${encodeURIComponent(jid)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deleteFiles }),
+  });
 }
 
 // --- Sessions ---
+
+export async function createSession(sessionId: string): Promise<{ jid: string }> {
+  return request('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId }),
+  });
+}
 
 export async function deleteSession(id: string): Promise<void> {
   await request(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -53,6 +69,17 @@ export async function getHistory(session: string, jid?: string, before?: string)
   if (before) params.set('before', before);
   const qs = params.toString();
   const data = await request<HistoryResponse>(`/api/history/${encodeURIComponent(session)}${qs ? `?${qs}` : ''}`);
+  return {
+    messages: Array.isArray(data.messages) ? data.messages : [],
+    olderCount: data.olderCount ?? 0,
+  };
+}
+
+/** Load a window of messages centered around a specific timestamp (for search navigation). */
+export async function getHistoryAround(session: string, timestamp: string, jid?: string): Promise<HistoryResponse> {
+  const params = new URLSearchParams({ around: timestamp });
+  if (jid) params.set('jid', jid);
+  const data = await request<HistoryResponse>(`/api/history/${encodeURIComponent(session)}?${params}`);
   return {
     messages: Array.isArray(data.messages) ? data.messages : [],
     olderCount: data.olderCount ?? 0,
@@ -167,4 +194,217 @@ export async function installRemoteSkill(url: string): Promise<SkillInfo> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
   });
+}
+
+// --- Groups ---
+
+export async function getGroups(): Promise<RegisteredGroupInfo[]> {
+  const data = await request<{ groups: RegisteredGroupInfo[] }>('/api/groups');
+  return Array.isArray(data.groups) ? data.groups : [];
+}
+
+export async function updateGroup(jid: string, updates: {
+  name?: string;
+  trigger?: string;
+  requiresTrigger?: boolean;
+  containerConfig?: { provider?: string; model?: string } | null;
+}): Promise<void> {
+  await request(`/api/groups/${encodeURIComponent(jid)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
+// --- Tasks ---
+
+export async function getTasks(folder?: string): Promise<ScheduledTaskInfo[]> {
+  const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
+  const data = await request<{ tasks: ScheduledTaskInfo[] }>(`/api/tasks${qs}`);
+  return Array.isArray(data.tasks) ? data.tasks : [];
+}
+
+export async function createTaskApi(data: {
+  group_folder: string;
+  chat_jid: string;
+  prompt: string;
+  schedule_type: 'cron' | 'interval' | 'once';
+  schedule_value: string;
+  context_mode?: 'group' | 'isolated';
+}): Promise<{ ok: boolean; id: string }> {
+  return request('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTaskApi(id: string, updates: {
+  prompt?: string;
+  schedule_type?: 'cron' | 'interval' | 'once';
+  schedule_value?: string;
+  status?: 'active' | 'paused';
+  context_mode?: 'group' | 'isolated';
+}): Promise<void> {
+  await request(`/api/tasks/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteTaskApi(id: string): Promise<void> {
+  await request(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function getTaskLogs(id: string): Promise<{ task: ScheduledTaskInfo; logs: TaskRunLogInfo[] }> {
+  return request(`/api/tasks/${encodeURIComponent(id)}/logs`);
+}
+
+// --- Search ---
+
+export async function searchMessages(
+  query: string,
+  jid?: string,
+  limit = 20,
+  offset = 0,
+): Promise<SearchResult[]> {
+  const params = new URLSearchParams({ q: query });
+  if (jid) params.set('jid', jid);
+  if (limit !== 20) params.set('limit', String(limit));
+  if (offset) params.set('offset', String(offset));
+  const data = await request<{ results: SearchResult[] }>(`/api/search?${params}`);
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+export async function aiSearchMessages(
+  query: string,
+  jid?: string,
+  limit = 20,
+  offset = 0,
+  lang?: string,
+): Promise<{ results: SearchResult[]; aiKeywords: string; error?: string }> {
+  const params = new URLSearchParams({ q: query });
+  if (jid) params.set('jid', jid);
+  if (limit !== 20) params.set('limit', String(limit));
+  if (offset) params.set('offset', String(offset));
+  if (lang) params.set('lang', lang);
+  const data = await request<{ results: SearchResult[]; aiKeywords: string; error?: string }>(`/api/search/ai?${params}`);
+  return {
+    results: Array.isArray(data.results) ? data.results : [],
+    aiKeywords: data.aiKeywords || '',
+    error: data.error,
+  };
+}
+
+// --- Export ---
+
+export function getExportUrl(jid: string, format: 'json' | 'md' | 'csv'): string {
+  return `/api/export/${encodeURIComponent(jid)}?format=${format}`;
+}
+
+// --- Logs ---
+
+export interface LogFileInfo {
+  name: string;
+  timestamp: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export async function getLogs(folder: string): Promise<LogFileInfo[]> {
+  const data = await request<{ logs: LogFileInfo[] }>(`/api/logs/${encodeURIComponent(folder)}`);
+  return Array.isArray(data.logs) ? data.logs : [];
+}
+
+export async function getLogContent(folder: string, filename: string): Promise<string> {
+  const data = await request<{ content: string }>(`/api/logs/${encodeURIComponent(folder)}/${encodeURIComponent(filename)}`);
+  return data.content || '';
+}
+
+export async function deleteLog(folder: string, filename: string): Promise<void> {
+  await request(`/api/logs/${encodeURIComponent(folder)}/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+}
+
+export async function cleanupLogs(folder: string, keep = 3): Promise<{ deleted: string[]; remaining: number }> {
+  return request(`/api/logs/${encodeURIComponent(folder)}/cleanup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keep }),
+  });
+}
+
+// --- Workspace File Browser ---
+
+export interface FolderConversation {
+  jid: string;
+  name: string;
+  channel: string;
+}
+
+export interface FolderInfo {
+  folder: string;
+  hasConversation: boolean;
+  conversationCount: number;
+  protected?: boolean;
+  conversations?: FolderConversation[];
+}
+
+export interface FileEntry {
+  name: string;
+  type: 'file' | 'directory';
+  size: number;
+  modifiedAt: string;
+  editable: boolean;
+}
+
+export async function getWorkspaceFolders(): Promise<FolderInfo[]> {
+  const data = await request<{ folders: FolderInfo[] }>('/api/workspace/folders');
+  return Array.isArray(data.folders) ? data.folders : [];
+}
+
+export async function browseFolder(folder: string, subpath?: string): Promise<{ path: string; files: FileEntry[] }> {
+  const route = subpath
+    ? `/api/workspace/browse/${encodeURIComponent(folder)}/${subpath.split('/').map(encodeURIComponent).join('/')}`
+    : `/api/workspace/browse/${encodeURIComponent(folder)}`;
+  const data = await request<{ path: string; files: FileEntry[] }>(route);
+  return { path: data.path || '', files: Array.isArray(data.files) ? data.files : [] };
+}
+
+export async function readWorkspaceFile(folder: string, subpath: string): Promise<{ content: string; editable: boolean; size: number }> {
+  const route = `/api/workspace/read/${encodeURIComponent(folder)}/${subpath.split('/').map(encodeURIComponent).join('/')}`;
+  return request(route);
+}
+
+export async function writeWorkspaceFile(folder: string, subpath: string, content: string): Promise<void> {
+  const route = `/api/workspace/write/${encodeURIComponent(folder)}/${subpath.split('/').map(encodeURIComponent).join('/')}`;
+  await request(route, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function deleteWorkspaceItem(folder: string, subpath: string): Promise<void> {
+  const route = `/api/workspace/delete/${encodeURIComponent(folder)}/${subpath.split('/').map(encodeURIComponent).join('/')}`;
+  await request(route, { method: 'DELETE' });
+}
+
+export async function renameWorkspaceItem(folder: string, from: string, to: string): Promise<void> {
+  await request(`/api/workspace/rename/${encodeURIComponent(folder)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to }),
+  });
+}
+
+/** Build a URL to the raw file endpoint (for download, PDF/audio/video preview). */
+export function getWorkspaceFileRawUrl(folder: string, subpath: string, download?: boolean): string {
+  const route = `/api/workspace/raw/${encodeURIComponent(folder)}/${subpath.split('/').map(encodeURIComponent).join('/')}`;
+  return download ? `${route}?download=1` : route;
+}
+
+export async function cleanupOrphanFolders(): Promise<string[]> {
+  const data = await request<{ deleted: string[] }>('/api/workspace/cleanup-orphans', { method: 'POST' });
+  return Array.isArray(data.deleted) ? data.deleted : [];
 }

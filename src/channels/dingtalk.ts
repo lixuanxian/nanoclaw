@@ -57,8 +57,12 @@ export class DingTalkChannel implements Channel {
   private client: DWClient | null = null;
   private webhookUrl = '';
   private webhookSecret = '';
+  private clientId = '';
+  private clientSecret = '';
   /** Cache sessionWebhook per conversationId for replies. */
   private sessionWebhooks = new Map<string, { url: string; expiresAt: number }>();
+  /** Cached OpenAPI access token. */
+  private accessToken: { token: string; expiresAt: number } | null = null;
 
   constructor(opts: DingTalkChannelOpts) {
     this.opts = opts;
@@ -71,6 +75,10 @@ export class DingTalkChannel implements Channel {
         'DingTalk channel requires Client ID (AppKey) and Client Secret (AppSecret). Configure in Settings.',
       );
     }
+
+    // Store credentials for OpenAPI fallback
+    this.clientId = config.client_id;
+    this.clientSecret = config.client_secret;
 
     // Optional: static webhook for proactive messages
     this.webhookUrl = config.webhook_url || '';
@@ -204,7 +212,7 @@ export class DingTalkChannel implements Channel {
     });
   }
 
-  /** Send message using sessionWebhook (preferred) or static webhook (fallback). */
+  /** Send message using sessionWebhook (preferred) → static webhook → OpenAPI (fallback). */
   private async send(conversationId: string, text: string): Promise<void> {
     // Try sessionWebhook first (no signing needed, per-conversation)
     const cached = this.sessionWebhooks.get(conversationId);
@@ -213,15 +221,79 @@ export class DingTalkChannel implements Channel {
         await this.postWebhook(cached.url, text, false);
         return;
       } catch (err) {
-        logger.warn({ err, conversationId }, 'sessionWebhook failed, trying static webhook');
+        logger.warn({ err, conversationId }, 'sessionWebhook failed, trying fallback');
       }
     }
 
     // Fallback to static webhook
-    if (!this.webhookUrl) {
-      throw new Error('No sessionWebhook available and no static webhook_url configured');
+    if (this.webhookUrl) {
+      await this.postWebhook(this.webhookUrl, text, true);
+      return;
     }
-    await this.postWebhook(this.webhookUrl, text, true);
+
+    // Final fallback: OpenAPI with access token
+    logger.warn(
+      { conversationId },
+      'No webhook configured for DingTalk, falling back to OpenAPI',
+    );
+    await this.sendViaOpenApi(conversationId, text);
+  }
+
+  /** Get or refresh an OpenAPI access token using client credentials. */
+  private async getAccessToken(): Promise<string> {
+    if (this.accessToken && this.accessToken.expiresAt > Date.now()) {
+      return this.accessToken.token;
+    }
+
+    const resp = await fetch('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appKey: this.clientId, appSecret: this.clientSecret }),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(`DingTalk accessToken request failed (${resp.status}): ${body}`);
+    }
+
+    const result = (await resp.json()) as { accessToken?: string; expireIn?: number };
+    if (!result.accessToken) {
+      throw new Error('DingTalk accessToken response missing token');
+    }
+
+    // Cache with 5-minute safety margin
+    this.accessToken = {
+      token: result.accessToken,
+      expiresAt: Date.now() + ((result.expireIn || 7200) - 300) * 1000,
+    };
+    return result.accessToken;
+  }
+
+  /** Send a message via DingTalk OpenAPI (robot group message). */
+  private async sendViaOpenApi(conversationId: string, text: string): Promise<void> {
+    const token = await this.getAccessToken();
+
+    const resp = await fetch('https://api.dingtalk.com/v1.0/robot/groupMessages/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-acs-dingtalk-access-token': token,
+      },
+      body: JSON.stringify({
+        robotCode: this.clientId,
+        openConversationId: conversationId,
+        msgKey: 'sampleText',
+        msgParam: JSON.stringify({ content: text }),
+      }),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(`DingTalk OpenAPI send failed (${resp.status}): ${body}`);
+    }
+
+    const result = (await resp.json()) as { processQueryKey?: string };
+    logger.debug({ conversationId, processQueryKey: result.processQueryKey }, 'Sent via DingTalk OpenAPI');
   }
 
   /** POST a text message to a DingTalk webhook URL. */

@@ -67,7 +67,7 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
   };
 
   // --- Favicon (public, no auth required) ---
-  const faviconPath = join(process.cwd(), 'assets', 'nanoclaw.ico');
+  const faviconPath = join(webDistDir, 'favicon.ico');
   const faviconBuf = existsSync(faviconPath) ? readFileSync(faviconPath) : null;
   if (faviconBuf) {
     app.get('/favicon.ico', (c) => {

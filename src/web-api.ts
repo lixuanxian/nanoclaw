@@ -4,12 +4,16 @@ import path from 'path';
 import { Hono } from 'hono';
 
 import { ASSISTANT_NAME, STORE_DIR } from './config.js';
-import { countMessagesForJids, deleteWebSession, getAllMessagesForJids, getJidsByFolder, getMessagesBeforeMultiJid, getWebSessions, getAllConversations, deleteConversation } from './db.js';
+import { countMessagesForJids, deleteWebSession, getAllMessagesForJids, getJidsByFolder, getMessagesBeforeMultiJid, getWebSessions, getAllConversations } from './db.js';
+import { getDeleteInfo, deleteConversationFull } from './web-api-cleanup.js';
+import { registerGroupRoutes } from './web-api-groups.js';
+import { registerLogRoutes } from './web-api-logs.js';
+import { registerFileRoutes } from './web-api-files.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { WebChannel } from './channels/web.js';
 import { getAuthFlow } from './whatsapp-auth-flow.js';
-import { isChannelConfigured, loadAiConfigRedacted, loadDefaultProviderConfig, loadChannelConfigRedacted, saveAiConfig, saveChannelConfig, AiConfig } from './channel-config.js';
+import { isChannelConfigured, loadAiConfigRedacted, loadDefaultProviderConfig, loadChannelConfigRedacted, saveAiConfig, saveChannelConfig, loadEnabledChannels, AiConfig } from './channel-config.js';
 import { getProvider, PROVIDERS, PROVIDER_ORDER } from './providers.js';
 import { listAllSkills, createCustomSkill, deleteCustomSkill, toggleSkill as toggleSkillEnabled, installRemoteSkill } from './skills.js';
 import type { ChannelManager } from './web-server.js';
@@ -95,7 +99,8 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
   // --- Channel status API ---
   app.get('/api/channels', (c) => {
     const activeIds = channelManager?.getActiveChannelIds() || ['web'];
-    return c.json({ channels: getChannelStatusList(activeIds) });
+    const enabledIds = loadEnabledChannels();
+    return c.json({ channels: getChannelStatusList(activeIds, enabledIds) });
   });
 
   // --- AI config API ---
@@ -148,6 +153,13 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
     return c.json({ sessions: getWebSessions() });
   });
 
+  app.post('/api/sessions', async (c) => {
+    const { sessionId } = await c.req.json<{ sessionId: string }>();
+    if (!sessionId) return c.json({ error: 'Missing sessionId' }, 400);
+    const jid = webChannel.createSession(sessionId);
+    return c.json({ ok: true, jid });
+  });
+
   app.delete('/api/sessions/:id', (c) => {
     const sessionId = c.req.param('id');
     deleteWebSession(sessionId);
@@ -160,10 +172,18 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
     return c.json({ conversations: getAllConversations() });
   });
 
-  app.delete('/api/conversations/:jid', (c) => {
+  app.get('/api/conversations/:jid/delete-info', (c) => {
     const jid = decodeURIComponent(c.req.param('jid'));
-    deleteConversation(jid);
-    logger.info({ jid }, 'Conversation deleted');
+    return c.json(getDeleteInfo(jid));
+  });
+
+  app.delete('/api/conversations/:jid', async (c) => {
+    const jid = decodeURIComponent(c.req.param('jid'));
+    const body = await c.req.json<{ deleteFiles?: boolean }>().catch(() => ({ deleteFiles: false }));
+    const deleteFiles = body.deleteFiles === true;
+    deleteConversationFull(jid, deleteFiles);
+    webChannel.clearSessionCache(jid);
+    logger.info({ jid, deleteFiles }, 'Conversation deleted');
     return c.json({ ok: true });
   });
 
@@ -172,6 +192,7 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
     const sessionId = c.req.param('session');
     const jid = c.req.query('jid') || `${sessionId}@web.nanoclaw`;
     const before = c.req.query('before');
+    const around = c.req.query('around');
 
     // Resolve all JIDs sharing this session's folder for cross-channel aggregation
     const groups = webChannel.getRegisteredGroups();
@@ -189,6 +210,27 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
         : m.chat_jid.includes('@dingtalk.') ? 'dingtalk'
         : m.chat_jid.includes('@g.us') ? 'whatsapp' : 'unknown',
     });
+
+    // Around: load a window of messages centered on a specific timestamp
+    if (around) {
+      const allMsgs = getAllMessagesForJids(allJids);
+      // Find closest message to the target timestamp
+      let idx = allMsgs.findIndex((m) => m.timestamp >= around);
+      if (idx === -1) idx = allMsgs.length - 1;
+      // Try exact match first
+      const exactIdx = allMsgs.findIndex((m) => m.timestamp === around);
+      if (exactIdx !== -1) idx = exactIdx;
+
+      const half = Math.floor(PAGE_SIZE / 2);
+      const start = Math.max(0, idx - half);
+      const end = Math.min(allMsgs.length, start + PAGE_SIZE);
+      const window = allMsgs.slice(start, end);
+
+      return c.json({
+        olderCount: start,
+        messages: window.map(mapMsg),
+      });
+    }
 
     // Paginated: load PAGE_SIZE messages older than `before`
     if (before) {
@@ -296,6 +338,15 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
     }
   });
 
+  // --- Groups + Tasks routes (delegated) ---
+  registerGroupRoutes(app);
+
+  // --- Log viewing routes ---
+  registerLogRoutes(app);
+
+  // --- Workspace file browser routes ---
+  registerFileRoutes(app);
+
   // --- File serving ---
   app.get('/api/files/:session/:filename', (c) => {
     const sessionId = c.req.param('session');
@@ -328,32 +379,27 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
   });
 }
 
-/** Build channel status list for the settings page. */
-export function getChannelStatusList(activeIds: string[] = ['web']) {
-  const waActive = activeIds.includes('whatsapp');
-  const waAuthExists = fs.existsSync(`${STORE_DIR}/auth/creds.json`);
+/** Resolve channel status: active → connected, enabled-but-inactive → error, configured → configured, else not_configured. */
+function resolveChannelStatus(id: string, activeIds: string[], enabledIds: string[]): string {
+  if (activeIds.includes(id)) return 'connected';
+  if (enabledIds.includes(id) && isChannelConfigured(id)) return 'error';
+  if (isChannelConfigured(id)) return 'configured';
+  return 'not_configured';
+}
 
-  // Check if WhatsApp auth flow is in progress
-  let waStatus = 'not_configured';
-  if (waActive) {
-    waStatus = 'connected';
-  } else if (waAuthExists) {
+/** Build channel status list for the settings page. */
+export function getChannelStatusList(activeIds: string[] = ['web'], enabledIds: string[] = []) {
+  // WhatsApp has special auth flow handling
+  let waStatus = resolveChannelStatus('whatsapp', activeIds, enabledIds);
+  // Also check creds file for "configured" when not explicitly configured via channel-config
+  if (waStatus === 'not_configured' && fs.existsSync(`${STORE_DIR}/auth/creds.json`)) {
     waStatus = 'configured';
   }
-
   // Override with live auth flow state if active
   const flow = getAuthFlow();
   const flowState = flow.getState();
   if (flowState.status !== 'idle') {
     waStatus = flowState.status;
-  }
-
-  const slackActive = activeIds.includes('slack');
-  let slackStatus = 'not_configured';
-  if (slackActive) {
-    slackStatus = 'connected';
-  } else if (isChannelConfigured('slack')) {
-    slackStatus = 'configured';
   }
 
   return [
@@ -366,14 +412,14 @@ export function getChannelStatusList(activeIds: string[] = ['web']) {
     },
     {
       id: 'whatsapp', name: 'WhatsApp', status: waStatus,
-      enabled: waActive,
+      enabled: activeIds.includes('whatsapp'),
       configurable: true,
       guideKeys: ['ch.waGuide.1', 'ch.waGuide.2', 'ch.waGuide.3', 'ch.waGuide.4'],
     },
     {
       id: 'slack', name: 'Slack',
-      status: slackStatus,
-      enabled: slackActive,
+      status: resolveChannelStatus('slack', activeIds, enabledIds),
+      enabled: activeIds.includes('slack'),
       configurable: true,
       fields: [
         { key: 'bot_token', label: 'Bot Token', type: 'password', placeholder: 'xoxb-...' },
@@ -384,7 +430,7 @@ export function getChannelStatusList(activeIds: string[] = ['web']) {
     },
     {
       id: 'dingtalk', name: 'DingTalk',
-      status: activeIds.includes('dingtalk') ? 'connected' : isChannelConfigured('dingtalk') ? 'configured' : 'not_configured',
+      status: resolveChannelStatus('dingtalk', activeIds, enabledIds),
       enabled: activeIds.includes('dingtalk'),
       configurable: true,
       fields: [

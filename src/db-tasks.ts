@@ -48,7 +48,7 @@ export function updateTask(
   updates: Partial<
     Pick<
       ScheduledTask,
-      'prompt' | 'schedule_type' | 'schedule_value' | 'next_run' | 'status'
+      'prompt' | 'schedule_type' | 'schedule_value' | 'next_run' | 'status' | 'context_mode'
     >
   >,
 ): void {
@@ -74,6 +74,10 @@ export function updateTask(
   if (updates.status !== undefined) {
     fields.push('status = ?');
     values.push(updates.status);
+  }
+  if (updates.context_mode !== undefined) {
+    fields.push('context_mode = ?');
+    values.push(updates.context_mode);
   }
 
   if (fields.length === 0) return;
@@ -132,4 +136,12 @@ export function logTaskRun(log: TaskRunLog): void {
     log.result,
     log.error,
   );
+}
+
+export function getTaskRunLogs(taskId: string): TaskRunLog[] {
+  return getDb()
+    .prepare(
+      'SELECT task_id, run_at, duration_ms, status, result, error FROM task_run_logs WHERE task_id = ? ORDER BY run_at DESC',
+    )
+    .all(taskId) as TaskRunLog[];
 }

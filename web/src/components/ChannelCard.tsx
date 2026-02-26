@@ -13,12 +13,13 @@ interface Props {
 }
 
 const statusColors: Record<string, string> = {
-  connected: 'green',
-  authenticated: 'green',
-  configured: 'orange',
+  connected: 'success',
+  authenticated: 'success',
+  configured: 'warning',
   not_configured: 'default',
   connecting: 'processing',
   qr_ready: 'processing',
+  error: 'error',
 };
 
 export function ChannelCard({ channel, onRefresh }: Props) {

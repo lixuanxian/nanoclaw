@@ -30,7 +30,7 @@ const buildOptions: esbuild.BuildOptions = {
 cpSync(resolve(__dirname, 'index.html'), resolve(__dirname, 'dist/index.html'));
 
 // Copy static assets (like favicon and CSS) to dist/assets/
-cpSync(resolve(__dirname, '../assets/nanoclaw.ico'), resolve(__dirname, 'dist/favicon.ico'), { recursive: true });
+cpSync(resolve(__dirname, '../assets/nanoclaw-chat-icon.ico'), resolve(__dirname, 'dist/favicon.ico'), { recursive: true });
 
 if (isWatch) {
   const ctx = await esbuild.context(buildOptions);

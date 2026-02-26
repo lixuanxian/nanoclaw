@@ -1,7 +1,8 @@
 // Barrel re-export — preserves existing import paths
-export { getDb, initDatabase, _initTestDatabase } from './db-init.js';
-export { storeMessage, storeMessageDirect, getNewMessages, getMessagesSince, getAllMessagesForChat, getMessagesBefore, countMessagesForChat, getMessagesSinceMultiJid, getAllMessagesForJids, countMessagesForJids, getMessagesBeforeMultiJid } from './db-messages.js';
-export { createTask, getTaskById, getTasksForGroup, getAllTasks, updateTask, deleteTask, getDueTasks, updateTaskAfterRun, logTaskRun } from './db-tasks.js';
+export { getDb, initDatabase, rebuildFtsIndex, _initTestDatabase } from './db-init.js';
+export { storeMessage, storeMessageDirect, getNewMessages, getMessagesSince, getAllMessagesForChat, getMessagesBefore, countMessagesForChat, getMessagesSinceMultiJid, getAllMessagesForJids, countMessagesForJids, getMessagesBeforeMultiJid, searchMessages } from './db-messages.js';
+export type { SearchResult } from './db-messages.js';
+export { createTask, getTaskById, getTasksForGroup, getAllTasks, updateTask, deleteTask, getDueTasks, updateTaskAfterRun, logTaskRun, getTaskRunLogs } from './db-tasks.js';
 export {
   storeChatMetadata, updateChatName, getAllChats, getLastGroupSync, setLastGroupSync,
   getRouterState, setRouterState, getSession, setSession, getAllSessions,
