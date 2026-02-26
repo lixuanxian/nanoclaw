@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Typography, Spin, Modal, Input, Switch, Form, Select, Dropdown, Checkbox, message } from 'antd';
+import { Button, Typography, Spin, Modal, Input, Switch, Form, Select, Dropdown, Checkbox, App } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, DownloadOutlined, MessageOutlined, FolderOutlined, ExclamationCircleOutlined, FileTextOutlined, EllipsisOutlined } from '@ant-design/icons';
 import { getConversations, deleteConversation, getDeleteInfo, getGroups, updateGroup, getAIConfig, getExportUrl } from '../api';
 import type { DeleteInfo } from '../types';
@@ -33,6 +33,7 @@ interface Props {
 
 export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refreshKey }: Props) {
   const { t } = useT();
+  const { message } = App.useApp();
   const [agents, setAgents] = useState<MergedAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [editAgent, setEditAgent] = useState<MergedAgent | null>(null);
@@ -239,7 +240,7 @@ export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refr
                   </div>
                 </div>
 
-                <div style={{ flexShrink: 0, visibility: hoveredJid === item.jid ? 'visible' : 'hidden', width: 24 }}>
+                <div className="agent-list-actions" style={{ flexShrink: 0, visibility: hoveredJid === item.jid ? 'visible' : 'hidden', width: 24 }}>
                   <Dropdown
                     menu={{
                       items: buildMenuItems(item),
@@ -268,7 +269,7 @@ export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refr
         onOk={handleSave}
         onCancel={() => setEditAgent(null)}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item label={t('group.name')} name="name" rules={[{ required: true }]}>
@@ -313,7 +314,7 @@ export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refr
         okButtonProps={{ danger: true }}
         okText="OK"
         cancelText="Cancel"
-        destroyOnClose
+        destroyOnHidden
       >
         {deleteTarget && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

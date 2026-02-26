@@ -186,10 +186,50 @@ export function toggleSkill(id: string, enabled: boolean): void {
 
 // --- Remote skill installation ---
 
+const MAX_SKILL_SIZE = 512 * 1024; // 512 KB
+
+/** Block fetches to private/reserved IP ranges and non-HTTP schemes. */
+function validateSkillUrl(raw: string): URL {
+  const parsed = new URL(raw);
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Only http/https URLs are allowed');
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  // Block obvious private/reserved hostnames
+  if (
+    hostname === 'localhost' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal')
+  ) {
+    throw new Error('Fetching from local/private hosts is not allowed');
+  }
+  // Block private IPv4 ranges and link-local (metadata endpoints)
+  const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (ipv4Match) {
+    const [, a, b] = ipv4Match.map(Number);
+    if (
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) || // link-local / cloud metadata
+      a === 0
+    ) {
+      throw new Error('Fetching from private/reserved IP ranges is not allowed');
+    }
+  }
+  return parsed;
+}
+
 export async function installRemoteSkill(url: string): Promise<SkillInfo> {
+  validateSkillUrl(url);
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
   const content = await res.text();
+  if (content.length > MAX_SKILL_SIZE) {
+    throw new Error(`Skill content too large (${content.length} bytes, max ${MAX_SKILL_SIZE})`);
+  }
 
   const fm = parseFrontmatter(content);
   const name = fm.name || new URL(url).pathname.split('/').pop()?.replace('.md', '') || 'remote-skill';

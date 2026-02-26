@@ -15,6 +15,7 @@ import { FileBrowser } from '../components/FileBrowser';
 import { SearchPopover } from '../components/SearchPopover';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { LanguageToggle } from '../components/LanguageToggle';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { Message, ThemeMode, UploadedFile } from '../types';
 
 const { Sider, Header, Content } = Layout;
@@ -44,6 +45,7 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   const navigate = useNavigate();
   const params = useParams<{ jid?: string; taskId?: string; folder?: string }>();
   const location = useLocation();
+  const isMobile = useIsMobile();
 
   const [sessionId, setSessionId] = useState<string>(
     () => localStorage.getItem('nanoclaw_session') || generateSessionId(),
@@ -52,7 +54,7 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [olderCount, setOlderCount] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth < 768);
   const [refreshKey, setRefreshKey] = useState(0);
   const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
   const [activeWorkspaceFolder, setActiveWorkspaceFolder] = useState<string | null>(null);
@@ -176,6 +178,10 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   };
 
   const handleSelectSession = (jid: string, _name: string, messageTimestamp?: string, query?: string) => {
+    // If already viewing this session's chat (not a task/workspace), skip re-selecting
+    // to avoid clearing messages without a WebSocket reconnect to re-fetch them
+    if (jid === activeJid && !messageTimestamp && !viewingTaskId && !activeWorkspaceFolder) return;
+
     // Extract session ID from JID (format: sessionId@web.nanoclaw)
     const sid = jid.includes('@') ? jid.split('@')[0] : jid;
     setActiveJid(jid);
@@ -184,6 +190,7 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
     setSearchQuery(query ?? null);
     updateSession(sid);
     navigate(`/agent-chat/${encodeURIComponent(jid)}`, { replace: true });
+    if (isMobile) setCollapsed(true);
 
     // If navigating to a specific message, load messages around its timestamp
     if (messageTimestamp) {
@@ -197,12 +204,14 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   const handleSelectTask = (taskId: string) => {
     setViewingTaskId(taskId);
     navigate(`/task/${encodeURIComponent(taskId)}`, { replace: true });
+    if (isMobile) setCollapsed(true);
   };
 
   const handleSelectFolder = (folder: string) => {
     setActiveWorkspaceFolder(folder);
     setViewingTaskId(null);
     navigate(`/workspace/${encodeURIComponent(folder)}`, { replace: true });
+    if (isMobile) setCollapsed(true);
   };
 
   const handleSend = (text: string, files?: UploadedFile[], mode?: 'plan' | 'edit', skills?: string[]) => {
@@ -230,16 +239,16 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   };
 
   return (
-    <Layout style={{  height: 'calc(100vh)' }}>
+    <Layout style={{ height: '100dvh', minHeight: '100vh' }}>
       <Sider
-        width={320}
+        width={isMobile ? 280 : 320}
         collapsedWidth={0}
         collapsed={collapsed}
         trigger={null}
         style={{
-          borderRight: '1px solid var(--ant-color-border)',
+          borderRight: collapsed ? 'none' : '1px solid var(--ant-color-border)',
           overflow: 'hidden',
-          padding: '10px 0px 10px 10px',
+          padding: collapsed ? '0' : '10px 0px 10px 10px',
         }}
       >
         <Sidebar
@@ -253,6 +262,10 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
           refreshKey={refreshKey}
         />
       </Sider>
+
+      {isMobile && !collapsed && (
+        <div className="sidebar-backdrop" onClick={() => setCollapsed(true)} />
+      )}
 
       <Layout>
         <Header style={{
@@ -271,20 +284,21 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
 
           <Text
             type="secondary"
+            className="chat-header-model-info"
             style={{ fontSize: 12, maxWidth: 360, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
           >
             {modelInfo}
           </Text>
 
           <Badge color={statusColors[status]} />
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text type="secondary" className="chat-header-status-text" style={{ fontSize: 12 }}>
             {t(`chat.${status}` as 'chat.connecting')}
           </Text>
 
           <div style={{ flex: 1 }} />
 
           {connectedChannels.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="chat-header-channels" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {connectedChannels.map((ch) => {
                 const Icon = CHANNEL_ICONS[ch.id];
                 return (

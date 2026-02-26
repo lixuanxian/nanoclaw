@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Typography, Spin, Table, Button, Modal, Input, Popconfirm, Empty, Breadcrumb, message } from 'antd';
-import { FolderOutlined, FileOutlined, EyeOutlined, EditOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
+import { FolderOutlined, FileOutlined, FolderAddOutlined, FileAddOutlined, EyeOutlined, EditOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { browseFolder, readWorkspaceFile, writeWorkspaceFile, deleteWorkspaceItem, renameWorkspaceItem, getWorkspaceFileRawUrl } from '../api';
+import { browseFolder, readWorkspaceFile, writeWorkspaceFile, deleteWorkspaceItem, renameWorkspaceItem, getWorkspaceFileRawUrl, createWorkspaceFile, createWorkspaceFolder } from '../api';
 import type { FileEntry } from '../api';
 import { useT } from '../i18n';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { MonacoWrapper, getMonacoLanguage } from './MonacoWrapper';
 
 const { Text } = Typography;
@@ -138,7 +139,7 @@ function MarkdownEditor({ value, onChange }: { value: string; onChange: (v: stri
   }, [value]);
 
   return (
-    <div style={{ display: 'flex', gap: 12, height: 'calc(70vh - 100px)', minHeight: 400 }}>
+    <div className="markdown-editor-panes" style={{ display: 'flex', gap: 12, height: 'calc(70vh - 100px)', minHeight: 400 }}>
       <div style={{ flex: 1, minWidth: 0, border: '1px solid var(--ant-color-border)', borderRadius: 6, overflow: 'hidden' }}>
         <MonacoWrapper value={value} language="markdown" height="100%" onChange={onChange} />
       </div>
@@ -157,6 +158,7 @@ function MarkdownEditor({ value, onChange }: { value: string; onChange: (v: stri
 
 export function FileBrowser({ folder }: Props) {
   const { t } = useT();
+  const isMobile = useIsMobile();
   const [subpath, setSubpath] = useState('');
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,6 +175,10 @@ export function FileBrowser({ folder }: Props) {
   // Rename modal
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+
+  // Create file/folder modal
+  const [createType, setCreateType] = useState<'file' | 'folder' | null>(null);
+  const [createName, setCreateName] = useState('');
 
   const load = (path: string) => {
     setLoading(true);
@@ -268,13 +274,34 @@ export function FileBrowser({ folder }: Props) {
     }
   };
 
+  const handleCreate = async () => {
+    const name = createName.trim();
+    if (!createType || !name) return;
+    const itemPath = subpath ? `${subpath}/${name}` : name;
+    try {
+      if (createType === 'folder') {
+        await createWorkspaceFolder(folder, itemPath);
+      } else {
+        await createWorkspaceFile(folder, itemPath);
+      }
+      message.success(t('ws.createSuccess'));
+      setCreateType(null);
+      setCreateName('');
+      load(subpath);
+    } catch {
+      message.error(t('ws.createFailed'));
+    }
+  };
+
   const breadcrumbParts = subpath ? subpath.split('/') : [];
 
   // Determine modal width based on context
   const previewType = previewFile ? getPreviewType(previewFile) : 'text';
   const isMarkdownEdit = editing && previewFile && getPreviewType(previewFile) === 'markdown';
   const needsWideModal = editing || isCodePreview(previewType) || ['html', 'markdown', 'pdf', 'video', 'image'].includes(previewType);
-  const modalWidth = isMarkdownEdit ? '92vw' : editing ? '80vw' : needsWideModal ? 800 : 700;
+  const modalWidth = isMobile
+    ? '96vw'
+    : isMarkdownEdit ? '92vw' : editing ? '80vw' : needsWideModal ? 800 : 700;
 
   const columns = [
     {
@@ -291,24 +318,26 @@ export function FileBrowser({ folder }: Props) {
         </span>
       ),
     },
-    {
-      title: t('ws.size'),
-      dataIndex: 'size',
-      key: 'size',
-      width: 100,
-      render: (size: number, record: FileEntry) => record.type === 'directory' ? '—' : formatSize(size),
-    },
-    {
-      title: t('ws.modified'),
-      dataIndex: 'modifiedAt',
-      key: 'modifiedAt',
-      width: 160,
-      render: (ts: string) => new Date(ts).toLocaleString(),
-    },
+    ...(!isMobile ? [
+      {
+        title: t('ws.size'),
+        dataIndex: 'size',
+        key: 'size',
+        width: 100,
+        render: (size: number, record: FileEntry) => record.type === 'directory' ? '—' : formatSize(size),
+      },
+      {
+        title: t('ws.modified'),
+        dataIndex: 'modifiedAt',
+        key: 'modifiedAt',
+        width: 160,
+        render: (ts: string) => new Date(ts).toLocaleString(),
+      },
+    ] : []),
     {
       title: t('ws.actions'),
       key: 'actions',
-      width: 150,
+      width: isMobile ? 100 : 150,
       render: (_: unknown, record: FileEntry) => (
         <div style={{ display: 'flex', gap: 0 }}>
           {record.type === 'file' && (
@@ -333,15 +362,24 @@ export function FileBrowser({ folder }: Props) {
 
   return (
     <div style={{ padding: 16 }}>
-      <Breadcrumb
-        style={{ marginBottom: 12 }}
-        items={[
-          { title: <span onClick={() => navigateBreadcrumb(-1)} style={{ cursor: 'pointer' }}>{folder}</span> },
-          ...breadcrumbParts.map((part, i) => ({
-            title: <span onClick={() => navigateBreadcrumb(i)} style={{ cursor: 'pointer' }}>{part}</span>,
-          })),
-        ]}
-      />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Breadcrumb
+          items={[
+            { title: <span onClick={() => navigateBreadcrumb(-1)} style={{ cursor: 'pointer' }}>{folder}</span> },
+            ...breadcrumbParts.map((part, i) => ({
+              title: <span onClick={() => navigateBreadcrumb(i)} style={{ cursor: 'pointer' }}>{part}</span>,
+            })),
+          ]}
+        />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button size="small" icon={<FileAddOutlined />} onClick={() => { setCreateType('file'); setCreateName(''); }}>
+            {!isMobile && t('ws.newFile')}
+          </Button>
+          <Button size="small" icon={<FolderAddOutlined />} onClick={() => { setCreateType('folder'); setCreateName(''); }}>
+            {!isMobile && t('ws.newFolder')}
+          </Button>
+        </div>
+      </div>
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48 }}><Spin /></div>
@@ -364,7 +402,7 @@ export function FileBrowser({ folder }: Props) {
         onCancel={() => setPreviewFile(null)}
         width={modalWidth}
         style={isMarkdownEdit ? { maxWidth: 1400 } : editing ? { maxWidth: 1200 } : undefined}
-        destroyOnClose
+        destroyOnHidden
         footer={editing ? [
           <Button key="cancel" onClick={() => setEditing(false)}>Cancel</Button>,
           <Button key="save" type="primary" loading={saving} onClick={handleSave}>{t('ws.save')}</Button>,
@@ -401,7 +439,7 @@ export function FileBrowser({ folder }: Props) {
         open={!!renameTarget}
         onOk={handleRename}
         onCancel={() => setRenameTarget(null)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>{renameTarget}</Text>
         <Input
@@ -409,6 +447,23 @@ export function FileBrowser({ folder }: Props) {
           onChange={(e) => setNewName(e.target.value)}
           placeholder={t('ws.renameTo')}
           onPressEnter={handleRename}
+        />
+      </Modal>
+
+      {/* Create File/Folder Modal */}
+      <Modal
+        title={createType === 'folder' ? t('ws.createFolder') : t('ws.createFile')}
+        open={!!createType}
+        onOk={handleCreate}
+        onCancel={() => setCreateType(null)}
+        destroyOnHidden
+      >
+        <Input
+          value={createName}
+          onChange={(e) => setCreateName(e.target.value)}
+          placeholder={createType === 'folder' ? t('ws.folderName') : t('ws.fileName')}
+          onPressEnter={handleCreate}
+          autoFocus
         />
       </Modal>
     </div>

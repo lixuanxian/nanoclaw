@@ -68,7 +68,7 @@ export function SearchPopover({ onNavigate }: Props) {
   };
 
   const content = (
-    <div style={{ width: 360, maxHeight: 420, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ width: 'min(360px, calc(100vw - 32px))', maxHeight: 420, display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <Input
           placeholder={t('search.placeholder')}

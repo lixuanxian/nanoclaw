@@ -440,3 +440,157 @@ body {
   animation: msg-flash 2.5s ease-out;
   border-radius: 8px;
 }
+
+/* ============================================
+   RESPONSIVE: Mobile (< 768px)
+   ============================================ */
+@media (max-width: 767px) {
+  body {
+    padding: 0 !important;
+  }
+
+  /* Prevent 300ms tap delay */
+  * {
+    touch-action: manipulation;
+  }
+
+  /* ── Sidebar as overlay ── */
+  .ant-layout-sider {
+    position: fixed !important;
+    z-index: 200;
+    height: 100vh !important;
+    left: 0;
+    top: 0;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.15);
+  }
+
+  /* ── Message bubbles: wider on mobile ── */
+  .msg-body {
+    max-width: 88%;
+  }
+
+  .msg-row {
+    padding: 0 10px;
+    margin-bottom: 12px;
+  }
+
+  .msg-avatar {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  .bubble-bot::before { top: 10px; }
+  .bubble-bot::after  { top: 11px; }
+  .bubble-user::after  { top: 11px; }
+
+  .msg-typing-row {
+    padding: 8px 10px 8px 50px;
+  }
+
+  /* ── Chat input: tighter padding, 16px font prevents iOS zoom ── */
+  .chat-input-area {
+    padding: 6px 10px 10px;
+  }
+
+  .chat-input-composer .chat-input-textarea textarea {
+    padding: 8px 12px !important;
+    font-size: 16px !important;
+  }
+
+  .chat-input-toolbar {
+    padding: 4px 8px 6px;
+  }
+
+  /* ── Header: hide non-essential items ── */
+  .chat-header-model-info,
+  .chat-header-status-text,
+  .chat-header-channels {
+    display: none !important;
+  }
+
+  /* ── Settings page ── */
+  .settings-content {
+    padding: 0 8px !important;
+  }
+
+  .settings-tabs > .ant-tabs-content-holder,
+  .settings-tabs > div > .ant-tabs-content-holder {
+    padding: 12px 0 16px;
+  }
+
+  /* ── Markdown: prevent overflow ── */
+  .msg-markdown pre {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+
+  .msg-markdown table {
+    font-size: 12px;
+    display: block;
+    overflow-x: auto;
+  }
+
+  /* ── Embedded content ── */
+  .msg-embed-pdf {
+    height: 280px;
+  }
+
+  /* ── Agent list: always show actions (no hover on touch) ── */
+  .agent-list-actions {
+    visibility: visible !important;
+  }
+
+  /* ── Markdown editor: stack vertically ── */
+  .markdown-editor-panes {
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+  .markdown-editor-panes > div {
+    min-height: 250px;
+  }
+}
+
+/* ============================================
+   RESPONSIVE: Tablet (768px – 1024px)
+   ============================================ */
+@media (min-width: 768px) and (max-width: 1024px) {
+  body {
+    padding: 6px;
+  }
+
+  .msg-body {
+    max-width: min(80%, 720px);
+  }
+
+  .msg-embed-pdf {
+    height: 350px;
+  }
+}
+
+/* ============================================
+   RESPONSIVE: Sidebar backdrop
+   ============================================ */
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 199;
+    animation: backdrop-fade-in 0.2s ease;
+  }
+
+  @keyframes backdrop-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}

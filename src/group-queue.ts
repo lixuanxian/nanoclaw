@@ -55,6 +55,13 @@ export class GroupQueue {
     return state;
   }
 
+  /** Public read-only accessor for container state (used by live-log streaming). */
+  getGroupState(folder: string): { active: boolean; containerName: string | null } | null {
+    const state = this.groups.get(folder);
+    if (!state) return null;
+    return { active: state.active, containerName: state.containerName };
+  }
+
   setProcessMessagesFn(fn: (folder: string) => Promise<boolean>): void {
     this.processMessagesFn = fn;
   }

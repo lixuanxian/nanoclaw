@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   });
   channels.push(webChannel);
   await webChannel.connect();
-  startWebServer(webChannel, { startChannelById, stopChannelById, getActiveChannelIds });
+  startWebServer(webChannel, { startChannelById, stopChannelById, getActiveChannelIds }, undefined, queue);
 
   // Start remaining enabled channels
   const enabledChannels = loadEnabledChannels();

@@ -230,7 +230,7 @@ export function TaskList({ refreshKey, activeTaskId, onSelectTask, onGoToAgent }
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 <ClockCircleOutlined style={{ fontSize: 16, marginTop: 3, opacity: 0.6 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text ellipsis={{ rows: 2 }} style={{ display: 'block', fontSize: 13 }}>
+                  <Text ellipsis style={{ display: 'block', fontSize: 13 }}>
                     {task.prompt}
                   </Text>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4, alignItems: 'center' }}>
@@ -306,7 +306,7 @@ export function TaskList({ refreshKey, activeTaskId, onSelectTask, onGoToAgent }
         onOk={handleSave}
         onCancel={() => setModalOpen(false)}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           {editTask ? (

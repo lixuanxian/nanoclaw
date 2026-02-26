@@ -138,7 +138,7 @@ export function GroupList({ refreshKey }: Props) {
         onOk={handleSave}
         onCancel={() => setEditGroup(null)}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item label={t('group.name')} name="name" rules={[{ required: true }]}>

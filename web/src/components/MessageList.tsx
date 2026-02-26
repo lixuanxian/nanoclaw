@@ -32,13 +32,11 @@ function renderMarkdown(text: string): string {
       'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr', 'code', 'pre',
       'ul', 'ol', 'li', 'a', 'img', 'blockquote', 'table', 'thead', 'tbody',
       'tr', 'th', 'td', 'strong', 'em', 'del', 'details', 'summary', 'span',
-      'div', 'iframe', 'embed', 'object', 'video', 'audio', 'source',
-      'sub', 'sup', 'mark', 'abbr',
+      'div', 'sub', 'sup', 'mark', 'abbr',
     ],
     ALLOWED_ATTR: [
-      'href', 'target', 'rel', 'src', 'alt', 'class', 'style',
-      'width', 'height', 'type', 'data', 'controls', 'autoplay',
-      'title', 'loading',
+      'href', 'target', 'rel', 'src', 'alt', 'class',
+      'width', 'height', 'title', 'loading',
     ],
   });
 }

@@ -334,6 +334,12 @@ export async function cleanupLogs(folder: string, keep = 3): Promise<{ deleted: 
   });
 }
 
+// --- Live Logs ---
+
+export async function getContainerStatus(folder: string): Promise<{ running: boolean; containerName: string | null }> {
+  return request(`/api/container-status/${encodeURIComponent(folder)}`);
+}
+
 // --- Workspace File Browser ---
 
 export interface FolderConversation {
@@ -402,6 +408,16 @@ export async function renameWorkspaceItem(folder: string, from: string, to: stri
 export function getWorkspaceFileRawUrl(folder: string, subpath: string, download?: boolean): string {
   const route = `/api/workspace/raw/${encodeURIComponent(folder)}/${subpath.split('/').map(encodeURIComponent).join('/')}`;
   return download ? `${route}?download=1` : route;
+}
+
+export async function createWorkspaceFile(folder: string, subpath: string): Promise<void> {
+  const route = `/api/workspace/touch/${encodeURIComponent(folder)}/${subpath.split('/').map(encodeURIComponent).join('/')}`;
+  await request(route, { method: 'POST' });
+}
+
+export async function createWorkspaceFolder(folder: string, subpath: string): Promise<void> {
+  const route = `/api/workspace/mkdir/${encodeURIComponent(folder)}/${subpath.split('/').map(encodeURIComponent).join('/')}`;
+  await request(route, { method: 'POST' });
 }
 
 export async function cleanupOrphanFolders(): Promise<string[]> {

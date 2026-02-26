@@ -9,10 +9,10 @@ Use AskUserQuestion to understand the request, then make changes directly to the
 
 ## Workflow
 
-1. **Understand** - Ask clarifying questions
-2. **Plan** - Identify files to modify
-3. **Implement** - Make changes
-4. **Verify** - Tell user how to test
+1. **Understand** — Ask clarifying questions
+2. **Plan** — Identify files to modify
+3. **Implement** — Make changes
+4. **Verify** — Tell user how to test
 
 ## Key Files
 
@@ -21,22 +21,23 @@ Use AskUserQuestion to understand the request, then make changes directly to the
 | `src/index.ts` | Orchestrator: channel setup, subsystem wiring |
 | `src/state.ts` | Runtime state, `loadState()`, `registerGroup()` |
 | `src/message-loop.ts` | Message polling, `processGroupMessages()`, `runAgent()` |
-| `src/providers.ts` | AI provider registry (7 providers) |
-| `src/channel-config.ts` | Channel + AI config persistence, provider resolution |
-| `src/web-server.ts` | Hono HTTP server, WebSocket, auth, UI routes |
+| `src/providers.ts` | AI provider registry |
+| `src/channel-config.ts` | Channel + AI config persistence |
+| `src/web-server.ts` | Hono HTTP server, WebSocket, auth |
 | `src/web-api.ts` | REST API handlers |
-| `src/channels/web.ts` | Web channel (browser chat via WebSocket) |
+| `src/channels/web.ts` | Web channel (WebSocket) |
 | `src/channels/slack.ts` | Slack channel (Socket Mode) |
+| `src/channels/dingtalk.ts` | DingTalk channel (Stream) |
 | `src/router.ts` | Message formatting, outbound routing |
 | `src/container-runner.ts` | Spawns agent containers with mounts |
-| `src/types.ts` | TypeScript interfaces (includes Channel) |
+| `src/types.ts` | TypeScript interfaces (includes `Channel`) |
 | `src/config.ts` | Assistant name, trigger pattern, directories |
-| `src/db.ts` | Barrel: re-exports all SQLite operations |
+| `src/db.ts` | Barrel: re-exports all DB operations |
 | `groups/CLAUDE.md` | Global memory/persona |
 
 ## AI Provider Architecture
 
-Claude CLI is **not required**. Provider resolution: `group config → Settings page → env vars → Claude (if CLI available) → none`. Users can run NanoClaw first, configure AI later via Settings → AI Model. The container agent gives a clear error if no provider is set.
+Provider resolution: `group config → Settings page → env vars → Claude (if CLI available) → none`. Claude CLI is not required. Users can configure any provider via Settings → AI Model.
 
 ## Common Patterns
 
@@ -48,7 +49,7 @@ Claude CLI is **not required**. Provider resolution: `group config → Settings 
 
 ### Adding MCP Integration
 
-1. Add MCP server config to container settings (`src/container-runner.ts`)
+1. Add MCP server config in `src/container-runner.ts`
 2. Document tools in `groups/CLAUDE.md`
 
 ### Changing Behavior
@@ -57,18 +58,8 @@ Claude CLI is **not required**. Provider resolution: `group config → Settings 
 - Persona → `groups/CLAUDE.md`
 - Per-group → specific group's `CLAUDE.md`
 
-### Changing Deployment
-
-1. Create service files for target platform
-2. Update paths in config
-
 ## After Changes
 
 ```bash
 npm run build
-# macOS:
-launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
-launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
-# Linux:
-# systemctl --user restart nanoclaw
 ```

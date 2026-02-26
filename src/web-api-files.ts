@@ -311,6 +311,55 @@ export function registerFileRoutes(app: Hono): void {
     });
   });
 
+  // Create a new directory
+  app.post('/api/workspace/mkdir/:folder{.+}', (c) => {
+    const raw = c.req.param('folder');
+    const parts = raw.split('/');
+    const folder = parts[0];
+    const subpath = sanitizePath(parts.slice(1).join('/'));
+    if (!subpath) return c.json({ error: 'Directory path required' }, 400);
+
+    let groupPath: string;
+    try {
+      groupPath = resolveWorkspaceFolderPath(folder);
+    } catch {
+      return c.json({ error: 'Invalid folder' }, 400);
+    }
+
+    const dirPath = path.resolve(groupPath, subpath);
+    if (!dirPath.startsWith(groupPath)) return c.json({ error: 'Path outside workspace' }, 400);
+    if (fs.existsSync(dirPath)) return c.json({ error: 'Already exists' }, 409);
+
+    fs.mkdirSync(dirPath, { recursive: true });
+    logger.info({ folder, subpath }, 'Workspace directory created');
+    return c.json({ ok: true });
+  });
+
+  // Create a new empty file
+  app.post('/api/workspace/touch/:folder{.+}', (c) => {
+    const raw = c.req.param('folder');
+    const parts = raw.split('/');
+    const folder = parts[0];
+    const subpath = sanitizePath(parts.slice(1).join('/'));
+    if (!subpath) return c.json({ error: 'File path required' }, 400);
+
+    let groupPath: string;
+    try {
+      groupPath = resolveWorkspaceFolderPath(folder);
+    } catch {
+      return c.json({ error: 'Invalid folder' }, 400);
+    }
+
+    const filePath = path.resolve(groupPath, subpath);
+    if (!filePath.startsWith(groupPath)) return c.json({ error: 'Path outside workspace' }, 400);
+    if (fs.existsSync(filePath)) return c.json({ error: 'Already exists' }, 409);
+
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, '', 'utf-8');
+    logger.info({ folder, subpath }, 'Workspace file created');
+    return c.json({ ok: true });
+  });
+
   // Cleanup orphan folders (no conversations)
   app.post('/api/workspace/cleanup-orphans', (c) => {
     if (!fs.existsSync(GROUPS_DIR)) return c.json({ deleted: [] });

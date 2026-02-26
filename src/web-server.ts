@@ -11,6 +11,7 @@ import { ADMIN_PASSWORD, ASSISTANT_NAME, WEB_HOST, WEB_PORT } from './config.js'
 import { countMessagesForJids, getAllMessagesForJids, getJidsByFolder } from './db.js';
 import { logger } from './logger.js';
 import { WebChannel } from './channels/web.js';
+import type { GroupQueue } from './group-queue.js';
 import { registerApiRoutes } from './web-api.js';
 
 const PAGE_SIZE = 10;
@@ -37,7 +38,7 @@ const MIME_TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
-export function startWebServer(webChannel: WebChannel, channelManager?: ChannelManager, port?: number): void {
+export function startWebServer(webChannel: WebChannel, channelManager?: ChannelManager, port?: number, queue?: GroupQueue): void {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
@@ -66,17 +67,15 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
     return html;
   };
 
-  // --- Favicon (public, no auth required) ---
-  const faviconPath = join(webDistDir, 'favicon.ico');
-  const faviconBuf = existsSync(faviconPath) ? readFileSync(faviconPath) : null;
-  if (faviconBuf) {
-    app.get('/favicon.ico', (c) => {
-      return c.body(faviconBuf, 200, {
-        'Content-Type': 'image/x-icon',
-        'Cache-Control': 'public, max-age=604800',
-      });
+  app.get('/favicon.ico', (c) => {
+    const filePath = join(webDistDir, 'favicon.ico');
+    if (!existsSync(filePath)) return c.notFound();
+    const buf = readFileSync(filePath);
+    return c.body(buf, 200, {
+      'Content-Type': 'image/x-icon',
+      'Cache-Control': 'public, max-age=0, must-revalidate',
     });
-  }
+  });
 
   // --- Auth middleware (only active when ADMIN_PASSWORD is set) ---
   if (ADMIN_PASSWORD) {
@@ -147,7 +146,7 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
   });
 
   // --- REST API routes (channels, AI config, sessions, history, files) ---
-  registerApiRoutes(app, webChannel, channelManager);
+  registerApiRoutes(app, webChannel, channelManager, queue);
 
   // --- WebSocket ---
   app.get(

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Typography, Spin, Button, Empty, Popconfirm, Dropdown, message } from 'antd';
+import { Typography, Spin, Button, Empty, Popconfirm, Dropdown, App } from 'antd';
 import { FolderOutlined, DeleteOutlined, LockOutlined, MessageOutlined } from '@ant-design/icons';
 import { getWorkspaceFolders, cleanupOrphanFolders } from '../api';
 import type { FolderInfo } from '../api';
@@ -16,6 +16,7 @@ interface Props {
 
 export function WorkspaceTab({ activeFolder, onSelectFolder, onSelectChat }: Props) {
   const { t } = useT();
+  const { message } = App.useApp();
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [cleaning, setCleaning] = useState(false);

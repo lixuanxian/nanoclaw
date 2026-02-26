@@ -45,7 +45,8 @@ const TAB_OVERLAY_STYLE: React.CSSProperties = {
 
 const TAB_CONTENT_STYLE: React.CSSProperties = {
   margin: '0 auto',
-  width: '80%',
+  width: '100%',
+  maxWidth: 800,
   height: `calc(100vh - 48px - 56px - 24px)`,
   padding: 24,
 };
@@ -429,6 +430,7 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
       </Header>
 
       <Content
+        className="settings-content"
         style={{
           display: 'flex',
           flexDirection: 'column',

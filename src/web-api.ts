@@ -9,6 +9,7 @@ import { getDeleteInfo, deleteConversationFull } from './web-api-cleanup.js';
 import { registerGroupRoutes } from './web-api-groups.js';
 import { registerLogRoutes } from './web-api-logs.js';
 import { registerFileRoutes } from './web-api-files.js';
+import { registerLiveLogRoutes } from './web-api-live-logs.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { WebChannel } from './channels/web.js';
@@ -17,6 +18,7 @@ import { isChannelConfigured, loadAiConfigRedacted, loadDefaultProviderConfig, l
 import { getProvider, PROVIDERS, PROVIDER_ORDER } from './providers.js';
 import { listAllSkills, createCustomSkill, deleteCustomSkill, toggleSkill as toggleSkillEnabled, installRemoteSkill } from './skills.js';
 import type { ChannelManager } from './web-server.js';
+import type { GroupQueue } from './group-queue.js';
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
 const PAGE_SIZE = 10;
@@ -42,7 +44,7 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /** Register all REST API routes on the Hono app. */
-export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelManager?: ChannelManager): void {
+export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelManager?: ChannelManager, queue?: GroupQueue): void {
   // --- WhatsApp auth API ---
   app.post('/api/channels/whatsapp/start', async (c) => {
     const flow = getAuthFlow();
@@ -343,6 +345,9 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
 
   // --- Log viewing routes ---
   registerLogRoutes(app);
+
+  // --- Live container log streaming ---
+  if (queue) registerLiveLogRoutes(app, queue);
 
   // --- Workspace file browser routes ---
   registerFileRoutes(app);
