@@ -310,6 +310,7 @@ export interface ConversationInfo {
 function channelFromJid(jid: string): string {
   if (jid.includes('@web.')) return 'web';
   if (jid.includes('@slack.')) return 'slack';
+  if (jid.includes('@dingtalk.')) return 'dingtalk';
   if (jid.includes('@g.us') || jid.includes('@s.whatsapp.net')) return 'whatsapp';
   return 'unknown';
 }

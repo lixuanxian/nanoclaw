@@ -36,4 +36,6 @@ groups/global/*
 
 agents-sdk-docs
 
+dist-debug
+
 .claude/settings.local.json

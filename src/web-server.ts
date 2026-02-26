@@ -231,7 +231,9 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
   });
 
   // --- SPA fallback: serve index.html for all non-API routes ---
+  const isDev = process.env.NODE_ENV === 'development';
   app.get('*', (c) => {
+    if (isDev) c.header('Cache-Control', 'no-cache');
     return c.html(getIndexHtml());
   });
 

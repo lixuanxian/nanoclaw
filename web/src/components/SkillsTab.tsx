@@ -84,7 +84,7 @@ export function SkillsTab() {
   };
 
   return (
-    <div style={{ maxWidth: 600 }}>
+    <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <Text strong>{t('skills.title')}</Text>
         <div style={{ display: 'flex', gap: 8 }}>

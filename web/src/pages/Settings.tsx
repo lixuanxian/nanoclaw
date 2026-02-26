@@ -47,6 +47,12 @@ const TAB_CONTENT_STYLE: React.CSSProperties = {
   margin: '0 auto',
   width: '80%',
   height: `calc(100vh - 48px - 56px - 24px)`,
+  padding: 24,
+};
+
+const TAB_CONTENT_LIMIT_STYLE: React.CSSProperties = {
+  maxWidth: 600,
+  margin: '0 auto',
 };
 
 interface Props {
@@ -288,7 +294,7 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
       label: t('settings.tabSkills'),
       children: (
         <div style={TAB_OVERLAY_STYLE}>
-          <div style={TAB_CONTENT_STYLE}>
+          <div style={{...TAB_CONTENT_STYLE, ...TAB_CONTENT_LIMIT_STYLE}}>
             <SkillsTab />
           </div>
         </div>
@@ -299,7 +305,7 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
       label: t('settings.tabUser'),
       children: (
         <div style={TAB_OVERLAY_STYLE}>
-          <div style={TAB_CONTENT_STYLE}>
+          <div style={{...TAB_CONTENT_STYLE, ...TAB_CONTENT_LIMIT_STYLE}}>
             <Card size="small" style={{ marginBottom: 16 }}>
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 <div>
