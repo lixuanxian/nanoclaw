@@ -2,7 +2,7 @@ import crypto from 'crypto';
 
 import { ASSISTANT_NAME, DEFAULT_SYNC_FOLDER } from '../config.js';
 import { logger } from '../logger.js';
-import { Channel, OnInboundMessage, OnChatMetadata, RegisteredGroup } from '../types.js';
+import { Channel, OnInboundMessage, OnChatMetadata, RegisteredGroup, SendMessageOptions } from '../types.js';
 
 const WEB_JID_SUFFIX = '@web.nanoclaw';
 
@@ -65,7 +65,7 @@ export class WebChannel implements Channel {
     return jid.endsWith(WEB_JID_SUFFIX);
   }
 
-  async sendMessage(jid: string, text: string): Promise<void> {
+  async sendMessage(jid: string, text: string, options?: SendMessageOptions): Promise<void> {
     const sessionId = jid.replace(WEB_JID_SUFFIX, '');
     const ws = this.connections.get(sessionId);
 
@@ -82,18 +82,20 @@ export class WebChannel implements Channel {
       logger.debug({ sessionId, queueSize: queue.length }, 'Web message queued (no active WS)');
     }
 
-    // Store bot message in DB
-    const now = new Date().toISOString();
-    this.opts.onMessage(jid, {
-      id: `web-bot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      chat_jid: jid,
-      sender: 'assistant',
-      sender_name: ASSISTANT_NAME,
-      content: `${ASSISTANT_NAME}: ${text}`,
-      timestamp: now,
-      is_from_me: true,
-      is_bot_message: true,
-    });
+    if (!options?.skipStore) {
+      // Store bot message in DB
+      const now = new Date().toISOString();
+      this.opts.onMessage(jid, {
+        id: `web-bot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        chat_jid: jid,
+        sender: 'assistant',
+        sender_name: ASSISTANT_NAME,
+        content: `${ASSISTANT_NAME}: ${text}`,
+        timestamp: now,
+        is_from_me: true,
+        is_bot_message: true,
+      });
+    }
   }
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
@@ -153,11 +155,11 @@ export class WebChannel implements Channel {
     return this.sessionSkills.get(sessionId);
   }
 
-  handleMessage(sessionId: string, text: string, files?: UploadedFile[], mode?: 'plan' | 'edit', skills?: string[]): void {
+  handleMessage(sessionId: string, text: string, files?: UploadedFile[], mode?: 'plan' | 'edit', skills?: string[], targetFolder?: string): void {
     if (mode) this.sessionModes.set(sessionId, mode);
     if (skills) this.sessionSkills.set(sessionId, skills);
 
-    const jid = this.ensureSession(sessionId);
+    const jid = this.ensureSession(sessionId, targetFolder);
 
     let content = text;
     if (files && files.length > 0) {
@@ -187,19 +189,27 @@ export class WebChannel implements Channel {
    * Ensure a web session is registered as a group.
    * The first web session uses the shared DEFAULT_SYNC_FOLDER for cross-channel sync.
    * Subsequent web sessions ("New Chat") get their own isolated folders.
+   * If targetFolder is provided (e.g. when sending from a non-web channel view),
+   * the web session joins that folder instead.
    */
-  private ensureSession(sessionId: string): string {
+  private ensureSession(sessionId: string, targetFolder?: string): string {
     const jid = `${sessionId}${WEB_JID_SUFFIX}`;
     this.sessionJids.set(sessionId, jid);
 
     // Always check registeredGroups — the session may have been deleted
     const groups = this.opts.registeredGroups();
     if (!groups[jid]) {
-      // Use default sync folder unless another web session already has it
-      const hasDefaultWeb = Object.entries(groups).some(
-        ([j, g]) => j.endsWith(WEB_JID_SUFFIX) && g.folder === DEFAULT_SYNC_FOLDER,
-      );
-      const folder = hasDefaultWeb ? `web-${sessionId.slice(0, 8)}` : DEFAULT_SYNC_FOLDER;
+      let folder: string;
+      if (targetFolder) {
+        // Join the same folder as the viewed non-web channel
+        folder = targetFolder;
+      } else {
+        // Use default sync folder unless another web session already has it
+        const hasDefaultWeb = Object.entries(groups).some(
+          ([j, g]) => j.endsWith(WEB_JID_SUFFIX) && g.folder === DEFAULT_SYNC_FOLDER,
+        );
+        folder = hasDefaultWeb ? `web-${sessionId.slice(0, 8)}` : DEFAULT_SYNC_FOLDER;
+      }
 
       // Don't bake AI config into the group — the global AI config
       // fallback chain in index.ts always reads the latest settings.

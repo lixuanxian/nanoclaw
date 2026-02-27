@@ -41,6 +41,17 @@ body {
   padding: 10px 20px 14px;
 }
 
+.chat-input-edit-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: var(--ant-color-primary-bg);
+  border: 1px solid var(--ant-color-primary-border);
+}
+
 .chat-input-files {
   display: flex;
   flex-wrap: wrap;
@@ -254,6 +265,64 @@ body {
 
 .msg-time-right {
   text-align: right;
+}
+
+/* Wrap bubble + actions together for hover alignment */
+.msg-bubble-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.msg-bubble-wrap-user {
+  flex-direction: row-reverse;
+}
+
+.msg-bubble-wrap-bot {
+  flex-direction: row;
+}
+
+.msg-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transform: scale(0.85);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.msg-actions-visible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.msg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: var(--ant-color-bg-elevated);
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.msg-action-btn:hover {
+  background: var(--ant-color-bg-container);
+  color: var(--ant-color-text);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+
+.msg-action-btn-danger:hover {
+  background: var(--ant-color-error-bg);
+  color: var(--ant-color-error);
 }
 
 .msg-typing-row {
@@ -539,6 +608,13 @@ body {
   /* ── Agent list: always show actions (no hover on touch) ── */
   .agent-list-actions {
     visibility: visible !important;
+  }
+
+  /* ── Message actions: smaller on mobile ── */
+  .msg-action-btn {
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
   }
 
   /* ── Markdown editor: stack vertically ── */

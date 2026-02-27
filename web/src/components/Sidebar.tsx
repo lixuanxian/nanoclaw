@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Segmented } from 'antd';
+import { useState, useEffect, useCallback } from 'react';
+import { Badge, Segmented } from 'antd';
 import { RobotOutlined, ClockCircleOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { useLocation } from 'react-router-dom';
 import { useT } from '../i18n';
@@ -30,6 +30,9 @@ export function Sidebar({ activeJid, activeTaskId, activeFolder, onSelect, onNew
   const { t } = useT();
   const location = useLocation();
   const [tab, setTab] = useState<Tab>(() => tabFromPath(location.pathname));
+  const [totalUnread, setTotalUnread] = useState(0);
+
+  const handleUnreadChange = useCallback((total: number) => setTotalUnread(total), []);
 
   useEffect(() => {
     setTab(tabFromPath(location.pathname));
@@ -37,14 +40,13 @@ export function Sidebar({ activeJid, activeTaskId, activeFolder, onSelect, onNew
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '8px 8px 0' }}>
+      <div style={{ padding: '12px 12px 0' }}>
         <Segmented
           block
-          size="small"
           value={tab}
           onChange={(val) => setTab(val as Tab)}
           options={[
-            { label: <span><RobotOutlined /> {t('sidebar.chats')}</span>, value: 'chats' },
+            { label: <span><RobotOutlined /> {t('sidebar.chats')}{totalUnread > 0 && <Badge count={totalUnread} size="small" style={{ marginLeft: 4 }} />}</span>, value: 'chats' },
             { label: <span><ClockCircleOutlined /> {t('sidebar.tasks')}</span>, value: 'tasks' },
             { label: <span><FolderOpenOutlined /> {t('ws.title')}</span>, value: 'workspace' },
           ]}
@@ -58,6 +60,7 @@ export function Sidebar({ activeJid, activeTaskId, activeFolder, onSelect, onNew
             onNewChat={onNewChat}
             onSelectFolder={onSelectFolder}
             refreshKey={refreshKey}
+            onUnreadChange={handleUnreadChange}
           />
         )}
         {tab === 'tasks' && (

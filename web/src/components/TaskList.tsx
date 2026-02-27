@@ -193,7 +193,7 @@ export function TaskList({ refreshKey, activeTaskId, onSelectTask, onGoToAgent }
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '12px 16px' }}>
         <Tooltip title={hasNoAgents ? t('task.noAgents') : undefined}>
-          <Button type="primary" icon={<PlusOutlined />} block onClick={openCreate} disabled={hasNoAgents}>
+          <Button type="link" icon={<PlusOutlined />} style={{ width: 100, float: 'right' }} onClick={openCreate} disabled={hasNoAgents}>
             {t('task.create')}
           </Button>
         </Tooltip>

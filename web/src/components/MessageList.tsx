@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Typography, Button, Spin } from 'antd';
-import { LoadingOutlined, UserOutlined, RobotOutlined } from '@ant-design/icons';
+import { Typography, Button, Spin, Popconfirm } from 'antd';
+import { LoadingOutlined, UserOutlined, RobotOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { useT } from '../i18n';
@@ -21,6 +21,8 @@ interface Props {
   highlightTimestamp?: string | null;
   searchQuery?: string | null;
   onHighlightDone?: () => void;
+  onDeleteMessage?: (msg: Message) => void;
+  onEditMessage?: (msg: Message) => void;
 }
 
 function renderMarkdown(text: string): string {
@@ -118,9 +120,18 @@ function highlightKeywords(html: string, query: string): string {
   });
 }
 
-function MessageBubble({ msg, highlight, searchQuery }: { msg: Message; highlight?: boolean; searchQuery?: string }) {
+interface BubbleProps {
+  msg: Message;
+  highlight?: boolean;
+  searchQuery?: string;
+  onDelete?: (msg: Message) => void;
+  onEdit?: (msg: Message) => void;
+}
+
+function MessageBubble({ msg, highlight, searchQuery, onDelete, onEdit }: BubbleProps) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const isUser = !msg.is_bot;
   const files = extractFiles(msg.content);
   const needsTruncation = msg.content.length > TRUNCATE_LIMIT && !isUser;
@@ -132,6 +143,8 @@ function MessageBubble({ msg, highlight, searchQuery }: { msg: Message; highligh
   const timeStr = msg.timestamp
     ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : '';
+
+  const hasActions = !!msg.id && (onDelete || (onEdit && isUser));
 
   const bubbleContent = (
     <>
@@ -162,18 +175,53 @@ function MessageBubble({ msg, highlight, searchQuery }: { msg: Message; highligh
     <div
       className={`msg-row ${isUser ? 'msg-row-user' : 'msg-row-bot'}${highlight ? ' msg-highlight' : ''}`}
       data-timestamp={msg.timestamp}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       {!isUser && (
         <div className="msg-avatar msg-avatar-bot">
           <RobotOutlined />
         </div>
       )}
-      <div className="msg-body">
-        <div
-          className={`bubble ${isUser ? 'bubble-user' : 'bubble-bot'}`}
-          style={{ wordBreak: 'break-word' }}
-        >
-          {bubbleContent}
+      <div className="msg-body" style={{ position: 'relative' }}>
+        <div className={`msg-bubble-wrap ${isUser ? 'msg-bubble-wrap-user' : 'msg-bubble-wrap-bot'}`}>
+          <div
+            className={`bubble ${isUser ? 'bubble-user' : 'bubble-bot'}`}
+            style={{ wordBreak: 'break-word' }}
+          >
+            {bubbleContent}
+          </div>
+          {hasActions && (
+            <div className={`msg-actions ${hovered ? 'msg-actions-visible' : ''}`}>
+              {onEdit && isUser && (
+                <button
+                  className="msg-action-btn"
+                  onClick={(e) => { e.stopPropagation(); onEdit(msg); }}
+                  title={t('chat.editMsg') || 'Edit'}
+                >
+                  <EditOutlined />
+                </button>
+              )}
+              {onDelete && (
+                <Popconfirm
+                  title={t('chat.deleteMsg')}
+                  description={t('chat.deleteMsgConfirm')}
+                  onConfirm={() => onDelete(msg)}
+                  okText="OK"
+                  cancelText="Cancel"
+                  placement={isUser ? 'left' : 'right'}
+                >
+                  <button
+                    className="msg-action-btn msg-action-btn-danger"
+                    onClick={(e) => e.stopPropagation()}
+                    title={t('chat.deleteMsg') || 'Delete'}
+                  >
+                    <DeleteOutlined />
+                  </button>
+                </Popconfirm>
+              )}
+            </div>
+          )}
         </div>
         {timeStr && <div className={`msg-time ${isUser ? 'msg-time-right' : ''}`}>{timeStr}</div>}
       </div>
@@ -189,7 +237,7 @@ function MessageBubble({ msg, highlight, searchQuery }: { msg: Message; highligh
   );
 }
 
-export function MessageList({ messages, sessionId, jid, olderCount, isTyping, onOlderLoaded, highlightTimestamp, searchQuery, onHighlightDone }: Props) {
+export function MessageList({ messages, sessionId, jid, olderCount, isTyping, onOlderLoaded, highlightTimestamp, searchQuery, onHighlightDone, onDeleteMessage, onEditMessage }: Props) {
   const { t } = useT();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -259,6 +307,8 @@ export function MessageList({ messages, sessionId, jid, olderCount, isTyping, on
           msg={msg}
           highlight={highlightTimestamp === msg.timestamp}
           searchQuery={highlightTimestamp === msg.timestamp ? searchQuery ?? undefined : undefined}
+          onDelete={onDeleteMessage}
+          onEdit={onEditMessage}
         />
       ))}
 

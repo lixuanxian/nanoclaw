@@ -1,10 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Input, Button, Upload, Typography, App, Segmented } from 'antd';
-import { SendOutlined, PaperClipOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { SendOutlined, PaperClipOutlined, CloseCircleOutlined, EditOutlined } from '@ant-design/icons';
 import { uploadFiles } from '../api';
 import { useT } from '../i18n';
 import { SkillsPicker } from './SkillsPicker';
-import type { UploadedFile } from '../types';
+import type { Message, UploadedFile } from '../types';
 
 const { Text } = Typography;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -13,9 +13,12 @@ interface Props {
   sessionId: string | null;
   onSend: (text: string, files?: UploadedFile[], mode?: 'plan' | 'edit', skills?: string[]) => void;
   disabled?: boolean;
+  editingMessage?: Message | null;
+  onEditSubmit?: (content: string) => void;
+  onCancelEdit?: () => void;
 }
 
-export function MessageInput({ sessionId, onSend, disabled }: Props) {
+export function MessageInput({ sessionId, onSend, disabled, editingMessage, onEditSubmit, onCancelEdit }: Props) {
   const { t } = useT();
   const { message: antMessage } = App.useApp();
   const [text, setText] = useState('');
@@ -32,6 +35,14 @@ export function MessageInput({ sessionId, onSend, disabled }: Props) {
     return () => clearInterval(id);
   }, []);
   const placeholder = text ? '' : t(EG_KEYS[egIndex]);
+
+  // Enter edit mode: populate textarea with the message being edited
+  useEffect(() => {
+    if (editingMessage) {
+      setText(editingMessage.content);
+      inputRef.current?.focus();
+    }
+  }, [editingMessage]);
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
     const files = Array.from(fileList);
@@ -53,6 +64,16 @@ export function MessageInput({ sessionId, onSend, disabled }: Props) {
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed && pendingFiles.length === 0) return;
+
+    // Edit mode: submit the edited content and exit
+    if (editingMessage && onEditSubmit) {
+      if (!trimmed) return;
+      onEditSubmit(trimmed);
+      setText('');
+      inputRef.current?.focus();
+      return;
+    }
+
     if (!sessionId) return;
 
     let uploaded: UploadedFile[] | undefined;
@@ -75,6 +96,12 @@ export function MessageInput({ sessionId, onSend, disabled }: Props) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && editingMessage && onCancelEdit) {
+      e.preventDefault();
+      onCancelEdit();
+      setText('');
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -109,6 +136,20 @@ export function MessageInput({ sessionId, onSend, disabled }: Props) {
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
     >
+      {/* Edit mode banner */}
+      {editingMessage && (
+        <div className="chat-input-edit-banner">
+          <EditOutlined style={{ fontSize: 13 }} />
+          <Text style={{ fontSize: 12, flex: 1 }}>{t('chat.editing')}</Text>
+          <Button
+            type="text"
+            size="small"
+            icon={<CloseCircleOutlined />}
+            onClick={() => { onCancelEdit?.(); setText(''); }}
+          />
+        </div>
+      )}
+
       {/* File chips above composer */}
       {pendingFiles.length > 0 && (
         <div className="chat-input-files">

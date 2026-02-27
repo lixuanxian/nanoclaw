@@ -349,6 +349,69 @@ export function getAllConversations(): ConversationInfo[] {
   });
 }
 
+// --- Read position tracking ---
+
+/** Get the last-read timestamp for a JID. */
+export function getLastRead(jid: string): string | null {
+  const row = getDb().prepare('SELECT last_read_timestamp FROM read_positions WHERE jid = ?').get(jid) as { last_read_timestamp: string } | undefined;
+  return row?.last_read_timestamp ?? null;
+}
+
+/** Set the last-read timestamp for a JID. */
+export function setLastRead(jid: string, timestamp: string): void {
+  getDb().prepare(
+    'INSERT OR REPLACE INTO read_positions (jid, last_read_timestamp) VALUES (?, ?)',
+  ).run(jid, timestamp);
+}
+
+/** Count unread messages for a JID (or folder-aggregated JIDs) since a given timestamp. */
+export function countUnreadForJids(jids: string[], sinceTimestamp: string | null): number {
+  if (jids.length === 0) return 0;
+  if (!sinceTimestamp) {
+    // Never read — all messages are unread
+    const placeholders = jids.map(() => '?').join(',');
+    const row = getDb().prepare(
+      `SELECT COUNT(*) as cnt FROM messages WHERE chat_jid IN (${placeholders})`,
+    ).get(...jids) as { cnt: number };
+    return row.cnt;
+  }
+  const placeholders = jids.map(() => '?').join(',');
+  const row = getDb().prepare(
+    `SELECT COUNT(*) as cnt FROM messages WHERE chat_jid IN (${placeholders}) AND timestamp > ?`,
+  ).get(...jids, sinceTimestamp) as { cnt: number };
+  return row.cnt;
+}
+
+/** Get all conversations with unread counts (folder-aware). */
+export function getAllConversationsWithUnread(): (ConversationInfo & { unreadCount: number })[] {
+  const conversations = getAllConversations();
+  const groups = getAllRegisteredGroups();
+
+  // Cache folder → lastRead to avoid repeated queries for synced folders
+  const folderReadCache = new Map<string, string | null>();
+
+  return conversations.map((conv) => {
+    const group = groups[conv.jid];
+    const folder = group?.folder;
+    const allJids = folder ? getJidsByFolder(folder) : [conv.jid];
+
+    // Get the best last-read timestamp across all JIDs in the folder
+    let lastRead: string | null = null;
+    if (folder && folderReadCache.has(folder)) {
+      lastRead = folderReadCache.get(folder)!;
+    } else {
+      for (const j of allJids) {
+        const ts = getLastRead(j);
+        if (ts && (!lastRead || ts > lastRead)) lastRead = ts;
+      }
+      if (folder) folderReadCache.set(folder, lastRead);
+    }
+
+    const unreadCount = countUnreadForJids(allJids, lastRead);
+    return { ...conv, unreadCount };
+  });
+}
+
 /** Delete all data for a conversation (any channel). */
 export function deleteConversation(jid: string): void {
   const row = getDb().prepare('SELECT folder FROM registered_groups WHERE jid = ?').get(jid) as { folder: string } | undefined;

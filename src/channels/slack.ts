@@ -9,6 +9,7 @@ import {
   OnChatMetadata,
   RegisteredGroup,
   NewMessage,
+  SendMessageOptions,
 } from '../types.js';
 
 const SLACK_JID_SUFFIX = '@slack.nanoclaw';
@@ -81,7 +82,7 @@ export class SlackChannel implements Channel {
     return jid.endsWith(SLACK_JID_SUFFIX);
   }
 
-  async sendMessage(jid: string, text: string): Promise<void> {
+  async sendMessage(jid: string, text: string, options?: SendMessageOptions): Promise<void> {
     const channelId = jid.replace(SLACK_JID_SUFFIX, '');
 
     try {
@@ -95,18 +96,20 @@ export class SlackChannel implements Channel {
       throw err;
     }
 
-    // Store bot message in DB (following WebChannel pattern)
-    const now = new Date().toISOString();
-    this.opts.onMessage(jid, {
-      id: `slack-bot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      chat_jid: jid,
-      sender: 'assistant',
-      sender_name: ASSISTANT_NAME,
-      content: `${ASSISTANT_NAME}: ${text}`,
-      timestamp: now,
-      is_from_me: true,
-      is_bot_message: true,
-    });
+    if (!options?.skipStore) {
+      // Store bot message in DB (following WebChannel pattern)
+      const now = new Date().toISOString();
+      this.opts.onMessage(jid, {
+        id: `slack-bot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        chat_jid: jid,
+        sender: 'assistant',
+        sender_name: ASSISTANT_NAME,
+        content: `${ASSISTANT_NAME}: ${text}`,
+        timestamp: now,
+        is_from_me: true,
+        is_bot_message: true,
+      });
+    }
   }
 
   async disconnect(): Promise<void> {

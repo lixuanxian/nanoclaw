@@ -185,6 +185,34 @@ export function getMessagesBeforeMultiJid(jids: string[], before: string, limit:
   `).all(...jids, before, limit).reverse() as NewMessage[];
 }
 
+// --- Delete / Update ---
+
+/** Delete a single message by its composite PK. FTS5 triggers auto-sync. */
+export function deleteMessageById(id: string, chatJid: string): void {
+  getDb().prepare('DELETE FROM messages WHERE id = ? AND chat_jid = ?').run(id, chatJid);
+}
+
+/** Update the content of a single message. FTS5 triggers auto-sync. */
+export function updateMessageContent(id: string, chatJid: string, content: string): void {
+  getDb().prepare('UPDATE messages SET content = ? WHERE id = ? AND chat_jid = ?').run(content, id, chatJid);
+}
+
+/** Delete all messages in a chat that come after a given timestamp. Returns number deleted. */
+export function deleteMessagesAfter(chatJid: string, afterTimestamp: string): number {
+  const result = getDb().prepare(
+    'DELETE FROM messages WHERE chat_jid = ? AND timestamp > ?',
+  ).run(chatJid, afterTimestamp);
+  return result.changes;
+}
+
+/** Get the timestamp of a message by its composite PK. */
+export function getMessageTimestamp(id: string, chatJid: string): string | null {
+  const row = getDb().prepare(
+    'SELECT timestamp FROM messages WHERE id = ? AND chat_jid = ?',
+  ).get(id, chatJid) as { timestamp: string } | undefined;
+  return row?.timestamp ?? null;
+}
+
 // --- Full-text search ---
 
 export interface SearchResult {

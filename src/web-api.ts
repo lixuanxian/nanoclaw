@@ -4,7 +4,7 @@ import path from 'path';
 import { Hono } from 'hono';
 
 import { ASSISTANT_NAME, STORE_DIR } from './config.js';
-import { countMessagesForJids, deleteWebSession, getAllMessagesForJids, getJidsByFolder, getMessagesBeforeMultiJid, getWebSessions, getAllConversations } from './db.js';
+import { countMessagesForJids, deleteWebSession, getAllMessagesForJids, getJidsByFolder, getMessagesBeforeMultiJid, getWebSessions, getAllConversationsWithUnread, setLastRead, deleteMessageById, updateMessageContent, deleteMessagesAfter, getMessageTimestamp } from './db.js';
 import { getDeleteInfo, deleteConversationFull } from './web-api-cleanup.js';
 import { registerGroupRoutes } from './web-api-groups.js';
 import { registerLogRoutes } from './web-api-logs.js';
@@ -171,7 +171,14 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
 
   // --- All-channel conversation API ---
   app.get('/api/conversations', (c) => {
-    return c.json({ conversations: getAllConversations() });
+    return c.json({ conversations: getAllConversationsWithUnread() });
+  });
+
+  app.post('/api/conversations/:jid/read', (c) => {
+    const jid = decodeURIComponent(c.req.param('jid'));
+    const now = new Date().toISOString();
+    setLastRead(jid, now);
+    return c.json({ ok: true });
   });
 
   app.get('/api/conversations/:jid/delete-info', (c) => {
@@ -202,7 +209,8 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
     const folder = group?.folder;
     const allJids = folder ? getJidsByFolder(folder) : [jid];
 
-    const mapMsg = (m: { content: string; sender_name: string; timestamp: string; is_bot_message?: boolean; chat_jid: string }) => ({
+    const mapMsg = (m: { id: string; content: string; sender_name: string; timestamp: string; is_bot_message?: boolean; chat_jid: string }) => ({
+      id: m.id,
       content: m.content,
       sender: m.sender_name,
       timestamp: m.timestamp,
@@ -256,6 +264,39 @@ export function registerApiRoutes(app: Hono, webChannel: WebChannel, channelMana
       olderCount,
       messages: recent.map(mapMsg),
     });
+  });
+
+  // --- Message actions (delete / edit) ---
+  app.delete('/api/messages/:id', async (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    const body = await c.req.json<{ chatJid: string }>().catch(() => ({ chatJid: '' }));
+    if (!body.chatJid) return c.json({ error: 'Missing chatJid' }, 400);
+    deleteMessageById(id, body.chatJid);
+    return c.json({ ok: true });
+  });
+
+  app.put('/api/messages/:id', async (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    const body = await c.req.json<{ chatJid: string; content: string }>().catch(() => ({ chatJid: '', content: '' }));
+    if (!body.chatJid || !body.content) return c.json({ error: 'Missing chatJid or content' }, 400);
+
+    // Get the original message timestamp so we can delete subsequent bot replies
+    const ts = getMessageTimestamp(id, body.chatJid);
+    if (!ts) return c.json({ error: 'Message not found' }, 404);
+
+    // Update message content
+    updateMessageContent(id, body.chatJid, body.content);
+
+    // Delete bot messages that came after this user message (so AI re-generates)
+    const groups = webChannel.getRegisteredGroups();
+    const group = groups[body.chatJid];
+    const folder = group?.folder;
+    const allJids = folder ? getJidsByFolder(folder) : [body.chatJid];
+    for (const j of allJids) {
+      deleteMessagesAfter(j, ts);
+    }
+
+    return c.json({ ok: true });
   });
 
   // --- File upload ---

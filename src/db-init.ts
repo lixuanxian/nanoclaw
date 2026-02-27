@@ -83,6 +83,11 @@ function createSchema(database: Database.Database): void {
       requires_trigger INTEGER DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS idx_rg_folder ON registered_groups(folder);
+
+    CREATE TABLE IF NOT EXISTS read_positions (
+      jid TEXT PRIMARY KEY,
+      last_read_timestamp TEXT NOT NULL
+    );
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)

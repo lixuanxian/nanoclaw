@@ -48,6 +48,8 @@ export function findChannel(
 /**
  * Broadcast a message to all JIDs sharing a folder (cross-channel sync).
  * Sends to each connected channel that owns one of the folder's JIDs.
+ * The bot message is stored in DB only once (via the first channel) to avoid
+ * duplicate messages when the web UI aggregates all JIDs in a folder.
  */
 export async function broadcastToFolder(
   channels: Channel[],
@@ -59,12 +61,18 @@ export async function broadcastToFolder(
     .filter(([, g]) => g.folder === folder)
     .map(([jid]) => jid);
 
+  // Pick the first connected JID as the one that stores the message in DB.
+  // All other channels send-only to avoid duplicate messages in folder history.
+  const storeJid = targets.find((jid) =>
+    channels.some((c) => c.ownsJid(jid) && c.isConnected()),
+  );
+
   await Promise.all(
     targets.map(async (jid) => {
       const ch = channels.find((c) => c.ownsJid(jid) && c.isConnected());
       if (!ch) return;
       try {
-        await ch.sendMessage(jid, text);
+        await ch.sendMessage(jid, text, { skipStore: jid !== storeJid });
       } catch (err) {
         logger.error({ jid, channel: ch.name, err }, 'Failed to send to channel in broadcast');
       }

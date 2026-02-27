@@ -39,6 +39,10 @@ export async function getDeleteInfo(jid: string): Promise<DeleteInfo> {
   return request(`/api/conversations/${encodeURIComponent(jid)}/delete-info`);
 }
 
+export async function markAsRead(jid: string): Promise<void> {
+  await request(`/api/conversations/${encodeURIComponent(jid)}/read`, { method: 'POST' });
+}
+
 export async function deleteConversation(jid: string, deleteFiles = false): Promise<void> {
   await request(`/api/conversations/${encodeURIComponent(jid)}`, {
     method: 'DELETE',
@@ -73,6 +77,24 @@ export async function getHistory(session: string, jid?: string, before?: string)
     messages: Array.isArray(data.messages) ? data.messages : [],
     olderCount: data.olderCount ?? 0,
   };
+}
+
+// --- Message actions ---
+
+export async function deleteMessage(id: string, chatJid: string): Promise<void> {
+  await request(`/api/messages/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chatJid }),
+  });
+}
+
+export async function editMessage(id: string, chatJid: string, content: string): Promise<void> {
+  await request(`/api/messages/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chatJid, content }),
+  });
 }
 
 /** Load a window of messages centered around a specific timestamp (for search navigation). */

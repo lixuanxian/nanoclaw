@@ -224,7 +224,7 @@ export function LogViewer({ folder, open, onClose }: Props) {
         </div>
       }
       placement="bottom"
-      height="50vh"
+      size="large"
       open={open}
       onClose={onClose}
       extra={extra}

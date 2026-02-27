@@ -4,7 +4,7 @@ import { SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-desi
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useWebSocket, type ConnectionStatus } from '../ws';
 import { useT } from '../i18n';
-import { getAIConfig, getChannels, createSession, getHistoryAround } from '../api';
+import { getAIConfig, getChannels, createSession, getHistoryAround, markAsRead, deleteMessage, editMessage } from '../api';
 import { CHANNEL_ICONS } from '../components/Icons';
 import type { ChannelInfo } from '../types';
 import { Sidebar } from '../components/Sidebar';
@@ -62,6 +62,7 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   const [connectedChannels, setConnectedChannels] = useState<ChannelInfo[]>([]);
   const [highlightTimestamp, setHighlightTimestamp] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
 
   // Sync URL params → state on mount / URL change
   useEffect(() => {
@@ -192,6 +193,9 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
     navigate(`/agent-chat/${encodeURIComponent(jid)}`, { replace: true });
     if (isMobile) setCollapsed(true);
 
+    // Mark conversation as read and refresh sidebar
+    markAsRead(jid).then(() => setRefreshKey((k) => k + 1)).catch(() => {});
+
     // If navigating to a specific message, load messages around its timestamp
     if (messageTimestamp) {
       getHistoryAround(sid, messageTimestamp, jid).then((data) => {
@@ -236,6 +240,38 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
     const olderArr = Array.isArray(older) ? older : [];
     setMessages((prev) => [...olderArr, ...(Array.isArray(prev) ? prev : [])]);
     setOlderCount(remaining);
+  };
+
+  const handleDeleteMessage = async (msg: Message) => {
+    if (!msg.id || !activeJid) return;
+    try {
+      await deleteMessage(msg.id, activeJid);
+      setMessages((prev) => prev.filter((m) => m.timestamp !== msg.timestamp || m.content !== msg.content));
+      setRefreshKey((k) => k + 1);
+    } catch { /* ignore */ }
+  };
+
+  const handleEditMessage = (msg: Message) => {
+    setEditingMessage(msg);
+  };
+
+  const handleEditSubmit = async (newContent: string) => {
+    if (!editingMessage?.id || !activeJid) return;
+    try {
+      await editMessage(editingMessage.id, activeJid, newContent);
+      // Remove the edited message and all messages after it from UI
+      const editIdx = messages.findIndex((m) => m.timestamp === editingMessage.timestamp && m.content === editingMessage.content);
+      if (editIdx !== -1) {
+        setMessages((prev) => prev.slice(0, editIdx));
+      }
+      setEditingMessage(null);
+      // Send the new content as a fresh message so AI re-processes
+      handleSend(newContent);
+    } catch { /* ignore */ }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
   };
 
   return (
@@ -369,6 +405,8 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
                   highlightTimestamp={highlightTimestamp}
                   searchQuery={searchQuery}
                   onHighlightDone={() => { setHighlightTimestamp(null); setSearchQuery(null); }}
+                  onDeleteMessage={handleDeleteMessage}
+                  onEditMessage={handleEditMessage}
                 />
               )}
 
@@ -376,6 +414,9 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
                 sessionId={sessionId}
                 onSend={handleSend}
                 disabled={status !== 'connected'}
+                editingMessage={editingMessage}
+                onEditSubmit={handleEditSubmit}
+                onCancelEdit={handleCancelEdit}
               />
             </>
           )}

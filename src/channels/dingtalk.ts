@@ -10,6 +10,7 @@ import {
   OnInboundMessage,
   OnChatMetadata,
   RegisteredGroup,
+  SendMessageOptions,
 } from '../types.js';
 
 const DINGTALK_JID_SUFFIX = '@dingtalk.nanoclaw';
@@ -134,7 +135,7 @@ export class DingTalkChannel implements Channel {
     return jid.endsWith(DINGTALK_JID_SUFFIX);
   }
 
-  async sendMessage(jid: string, text: string): Promise<void> {
+  async sendMessage(jid: string, text: string, options?: SendMessageOptions): Promise<void> {
     const conversationId = jid.replace(DINGTALK_JID_SUFFIX, '');
     const chunks = splitMessage(text, MSG_LIMIT);
 
@@ -147,18 +148,20 @@ export class DingTalkChannel implements Channel {
       'DingTalk message sent',
     );
 
-    // Store bot message in DB (following Slack/Web pattern)
-    const now = new Date().toISOString();
-    this.opts.onMessage(jid, {
-      id: `dt-bot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      chat_jid: jid,
-      sender: 'assistant',
-      sender_name: ASSISTANT_NAME,
-      content: `${ASSISTANT_NAME}: ${text}`,
-      timestamp: now,
-      is_from_me: true,
-      is_bot_message: true,
-    });
+    if (!options?.skipStore) {
+      // Store bot message in DB (following Slack/Web pattern)
+      const now = new Date().toISOString();
+      this.opts.onMessage(jid, {
+        id: `dt-bot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        chat_jid: jid,
+        sender: 'assistant',
+        sender_name: ASSISTANT_NAME,
+        content: `${ASSISTANT_NAME}: ${text}`,
+        timestamp: now,
+        is_from_me: true,
+        is_bot_message: true,
+      });
+    }
   }
 
   async disconnect(): Promise<void> {

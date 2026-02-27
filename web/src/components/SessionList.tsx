@@ -53,7 +53,7 @@ export function SessionList({ activeJid, onSelect, onNewChat, refreshKey }: Prop
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '12px 16px' }}>
-        <Button type="primary" icon={<PlusOutlined />} block onClick={onNewChat}>
+        <Button type="link" icon={<PlusOutlined />} style={{ width: 100, float: 'right' }} onClick={onNewChat}>
           {t('chat.newChat')}
         </Button>
       </div>

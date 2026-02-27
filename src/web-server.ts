@@ -155,13 +155,15 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
       const sessionId = c.req.query('session') || WebChannel.generateSessionId();
       const requestedJid = c.req.query('jid') || null;
 
-      // Viewing a non-web channel's history (read-only, don't create a phantom web group)
-      const isHistoryView = requestedJid != null && !requestedJid.endsWith('@web.nanoclaw');
+      // Viewing a non-web channel's history (read-only until user sends a message)
+      let isHistoryView = requestedJid != null && !requestedJid.endsWith('@web.nanoclaw');
+      let connectionRegistered = false;
 
       return {
         onOpen(_evt, ws) {
           if (!isHistoryView) {
             webChannel.handleConnection(sessionId, ws as unknown as { send(data: string): void; close(): void; readyState: number });
+            connectionRegistered = true;
           }
 
           // Use requested JID for history lookup (non-web channels), fall back to web JID
@@ -180,6 +182,7 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
                 type: 'history',
                 olderCount,
                 messages: recent.map((m) => ({
+                  id: m.id,
                   content: m.content,
                   sender: m.sender_name,
                   timestamp: m.timestamp,
@@ -196,11 +199,25 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
           }
         },
 
-        onMessage(evt, _ws) {
+        onMessage(evt, ws) {
           try {
             const data = JSON.parse(String(evt.data));
             if (data.type === 'message' && (data.text || data.files)) {
-              webChannel.handleMessage(sessionId, data.text || '', data.files, data.mode, data.skills);
+              // Transition from history view to active session: register WS
+              // and join the viewed channel's folder so the message lands in
+              // the same conversation instead of creating a new web chat.
+              if (isHistoryView && requestedJid) {
+                isHistoryView = false;
+                webChannel.handleConnection(sessionId, ws as unknown as { send(data: string): void; close(): void; readyState: number });
+                connectionRegistered = true;
+
+                const groups = webChannel.getRegisteredGroups();
+                const viewedGroup = groups[requestedJid];
+                const targetFolder = viewedGroup?.folder;
+                webChannel.handleMessage(sessionId, data.text || '', data.files, data.mode, data.skills, targetFolder);
+              } else {
+                webChannel.handleMessage(sessionId, data.text || '', data.files, data.mode, data.skills);
+              }
             }
           } catch (err) {
             logger.warn({ err }, 'Invalid WebSocket message');
@@ -208,7 +225,7 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
         },
 
         onClose() {
-          if (!isHistoryView) {
+          if (connectionRegistered) {
             webChannel.handleDisconnect(sessionId);
           }
         },

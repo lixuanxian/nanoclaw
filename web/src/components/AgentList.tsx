@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Typography, Spin, Modal, Input, Switch, Form, Select, Dropdown, Checkbox, App } from 'antd';
+import { Badge, Button, Typography, Spin, Modal, Input, Switch, Form, Select, Dropdown, Checkbox, App } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, DownloadOutlined, MessageOutlined, FolderOutlined, ExclamationCircleOutlined, FileTextOutlined, EllipsisOutlined } from '@ant-design/icons';
 import { getConversations, deleteConversation, getDeleteInfo, getGroups, updateGroup, getAIConfig, getExportUrl } from '../api';
 import type { DeleteInfo } from '../types';
@@ -21,6 +21,7 @@ interface MergedAgent {
   requiresTrigger: boolean;
   added_at: string | null;
   containerConfig: { provider?: string; model?: string } | null;
+  unreadCount: number;
 }
 
 interface Props {
@@ -29,9 +30,10 @@ interface Props {
   onNewChat: () => void;
   onSelectFolder: (folder: string) => void;
   refreshKey: number;
+  onUnreadChange?: (total: number) => void;
 }
 
-export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refreshKey }: Props) {
+export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refreshKey, onUnreadChange }: Props) {
   const { t } = useT();
   const { message } = App.useApp();
   const [agents, setAgents] = useState<MergedAgent[]>([]);
@@ -66,6 +68,7 @@ export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refr
           folder: g?.folder ?? null, trigger: g?.trigger ?? null,
           requiresTrigger: g?.requiresTrigger ?? true, added_at: g?.added_at ?? null,
           containerConfig: g?.containerConfig ?? null,
+          unreadCount: c.unreadCount ?? 0,
         });
       }
 
@@ -77,10 +80,13 @@ export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refr
           folder: g.folder, trigger: g.trigger,
           requiresTrigger: g.requiresTrigger, added_at: g.added_at,
           containerConfig: g.containerConfig ?? null,
+          unreadCount: 0,
         });
       }
 
       setAgents(merged);
+      const total = merged.reduce((sum, a) => sum + a.unreadCount, 0);
+      onUnreadChange?.(total);
     } catch { /* ignore */ } finally {
       setLoading(false);
     }
@@ -191,8 +197,8 @@ export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refr
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '12px 16px' }}>
-        <Button type="primary" icon={<PlusOutlined />} block onClick={onNewChat}>
+      <div style={{ padding: '10px 12px' }}>
+        <Button type="link" icon={<PlusOutlined />} style={{ width: 100, float: 'right' }} onClick={onNewChat}>
           {t('chat.newChat')}
         </Button>
       </div>
@@ -228,14 +234,19 @@ export function AgentList({ activeJid, onSelect, onNewChat, onSelectFolder, refr
                       : <MessageOutlined style={{ fontSize: 18, marginTop: 4 }} />;
                   })()}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Text ellipsis style={{ display: 'block' }}>{item.name || 'Chat'}</Text>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text type="secondary" ellipsis style={{ flex: 1, fontSize: 12 }}>
-                        {item.preview || (item.folder && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><FolderOutlined style={{ fontSize: 10 }} /> {item.folder}</span>)}
-                      </Text>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text ellipsis style={{ display: 'block', flex: 1, fontWeight: item.unreadCount > 0 ? 600 : 'normal' }}>{item.name || 'Chat'}</Text>
                       <Text type="secondary" style={{ fontSize: 11, marginLeft: 8, flexShrink: 0 }}>
                         {item.lastMessageTime ? formatTime(item.lastMessageTime) : ''}
                       </Text>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text type="secondary" ellipsis style={{ flex: 1, fontSize: 12 }}>
+                        {item.preview || (item.folder && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><FolderOutlined style={{ fontSize: 10 }} /> {item.folder}</span>)}
+                      </Text>
+                      {item.unreadCount > 0 && (
+                        <Badge count={item.unreadCount} size="small" style={{ marginLeft: 8, flexShrink: 0 }} />
+                      )}
                     </div>
                   </div>
                 </div>

@@ -1,4 +1,5 @@
 export interface Message {
+  id?: string;
   content: string;
   sender: string;
   timestamp: string;
@@ -12,6 +13,7 @@ export interface Conversation {
   channel: string;
   preview: string;
   lastMessageTime: string;
+  unreadCount: number;
 }
 
 export interface HistoryResponse {
