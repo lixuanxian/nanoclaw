@@ -107,7 +107,25 @@ export function registerFileRoutes(app: Hono): void {
     });
 
     folders.sort((a, b) => a.folder.localeCompare(b.folder));
-    return c.json({ folders });
+
+    // Also include root-level files (not inside any group folder)
+    const rootFileEntries = fs.readdirSync(GROUPS_DIR, { withFileTypes: true })
+      .filter((e) => e.isFile() && !e.name.startsWith('.'));
+    const rootFiles: FileEntry[] = rootFileEntries.map((e) => {
+      const filePath = path.join(GROUPS_DIR, e.name);
+      const stat = fs.statSync(filePath);
+      const ext = path.extname(e.name).toLowerCase();
+      return {
+        name: e.name,
+        type: 'file' as const,
+        size: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+        editable: EDITABLE_EXTS.has(ext),
+      };
+    });
+    rootFiles.sort((a, b) => a.name.localeCompare(b.name));
+
+    return c.json({ folders, rootFiles });
   });
 
   // Browse a directory
@@ -384,6 +402,93 @@ export function registerFileRoutes(app: Hono): void {
     }
 
     return c.json({ deleted });
+  });
+
+  // Read a root-level file (directly in GROUPS_DIR, not inside a group folder)
+  app.get('/api/workspace/root/read/:file', (c) => {
+    const fileName = c.req.param('file');
+    if (!fileName || /[/\\]/.test(fileName) || fileName === '..' || fileName === '.') {
+      return c.json({ error: 'Invalid file name' }, 400);
+    }
+    if (!fs.existsSync(GROUPS_DIR)) return c.json({ error: 'File not found' }, 404);
+
+    const filePath = path.resolve(GROUPS_DIR, fileName);
+    if (!filePath.startsWith(path.resolve(GROUPS_DIR))) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      return c.json({ error: 'File not found' }, 404);
+    }
+
+    const stat = fs.statSync(filePath);
+    if (stat.size > MAX_READ_SIZE) return c.json({ error: 'File too large (max 2MB)' }, 413);
+
+    const ext = path.extname(filePath).toLowerCase();
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return c.json({ content, editable: EDITABLE_EXTS.has(ext), size: stat.size });
+  });
+
+  // Serve raw root-level file (binary-safe)
+  app.get('/api/workspace/root/raw/:file', (c) => {
+    const fileName = c.req.param('file');
+    if (!fileName || /[/\\]/.test(fileName) || fileName === '..' || fileName === '.') {
+      return c.json({ error: 'Invalid file name' }, 400);
+    }
+    if (!fs.existsSync(GROUPS_DIR)) return c.json({ error: 'File not found' }, 404);
+
+    const filePath = path.resolve(GROUPS_DIR, fileName);
+    if (!filePath.startsWith(path.resolve(GROUPS_DIR))) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      return c.json({ error: 'File not found' }, 404);
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    const download = c.req.query('download') === '1';
+    const data = fs.readFileSync(filePath);
+    return new Response(data, {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Disposition': download
+          ? `attachment; filename="${encodeURIComponent(fileName)}"`
+          : 'inline',
+        'Cache-Control': 'private, max-age=300',
+      },
+    });
+  });
+
+  // Write a root-level file
+  app.put('/api/workspace/root/write/:file', async (c) => {
+    const fileName = c.req.param('file');
+    if (!fileName || /[/\\]/.test(fileName) || fileName === '..' || fileName === '.') {
+      return c.json({ error: 'Invalid file name' }, 400);
+    }
+
+    const filePath = path.resolve(GROUPS_DIR, fileName);
+    if (!filePath.startsWith(path.resolve(GROUPS_DIR))) return c.json({ error: 'Path outside workspace' }, 400);
+
+    const ext = path.extname(filePath).toLowerCase();
+    if (!EDITABLE_EXTS.has(ext)) return c.json({ error: 'File type not editable' }, 400);
+
+    const body = await c.req.json<{ content: string }>();
+    fs.writeFileSync(filePath, body.content, 'utf-8');
+    logger.info({ file: fileName }, 'Root workspace file written');
+    return c.json({ ok: true });
+  });
+
+  // Delete a root-level file
+  app.delete('/api/workspace/root/delete/:file', (c) => {
+    const fileName = c.req.param('file');
+    if (!fileName || /[/\\]/.test(fileName) || fileName === '..' || fileName === '.') {
+      return c.json({ error: 'Invalid file name' }, 400);
+    }
+
+    const filePath = path.resolve(GROUPS_DIR, fileName);
+    if (!filePath.startsWith(path.resolve(GROUPS_DIR))) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!fs.existsSync(filePath)) return c.json({ error: 'Not found' }, 404);
+    if (fs.statSync(filePath).isDirectory()) return c.json({ error: 'Not a file' }, 400);
+
+    fs.rmSync(filePath);
+    logger.info({ file: fileName }, 'Root workspace file deleted');
+    return c.json({ ok: true });
   });
 }
 

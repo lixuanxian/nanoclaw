@@ -386,9 +386,33 @@ export interface FileEntry {
   editable: boolean;
 }
 
-export async function getWorkspaceFolders(): Promise<FolderInfo[]> {
-  const data = await request<{ folders: FolderInfo[] }>('/api/workspace/folders');
-  return Array.isArray(data.folders) ? data.folders : [];
+export async function getWorkspaceFolders(): Promise<{ folders: FolderInfo[]; rootFiles: FileEntry[] }> {
+  const data = await request<{ folders: FolderInfo[]; rootFiles: FileEntry[] }>('/api/workspace/folders');
+  return {
+    folders: Array.isArray(data.folders) ? data.folders : [],
+    rootFiles: Array.isArray(data.rootFiles) ? data.rootFiles : [],
+  };
+}
+
+export async function readRootFile(fileName: string): Promise<{ content: string; editable: boolean; size: number }> {
+  return request(`/api/workspace/root/read/${encodeURIComponent(fileName)}`);
+}
+
+export function getRootFileRawUrl(fileName: string, download?: boolean): string {
+  const route = `/api/workspace/root/raw/${encodeURIComponent(fileName)}`;
+  return download ? `${route}?download=1` : route;
+}
+
+export async function writeRootFile(fileName: string, content: string): Promise<void> {
+  await request(`/api/workspace/root/write/${encodeURIComponent(fileName)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function deleteRootFile(fileName: string): Promise<void> {
+  await request(`/api/workspace/root/delete/${encodeURIComponent(fileName)}`, { method: 'DELETE' });
 }
 
 export async function browseFolder(folder: string, subpath?: string): Promise<{ path: string; files: FileEntry[] }> {

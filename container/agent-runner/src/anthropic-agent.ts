@@ -96,10 +96,32 @@ function compressMessages(messages: MessageParam[], budget: number, systemPrompt
 
   const before = messages.length;
 
-  // Phase 1: Drop oldest messages (keep the latest user message + trailing)
+  // Phase 1: Drop oldest messages (keep the latest user message + trailing).
+  // Tool_use/tool_result pairs are removed together to avoid orphaned tool_use_ids.
   while (tokens > budget && messages.length > 1) {
     const removed = messages.shift()!;
     tokens -= estimateTokens(messageText(removed)) + 4;
+
+    // If we removed an assistant with tool_use blocks, also remove the
+    // subsequent user message if it contains only tool_result blocks
+    if (removed.role === 'assistant' && Array.isArray(removed.content)) {
+      const hasToolUse = (removed.content as Array<{ type: string }>).some(b => b.type === 'tool_use');
+      if (hasToolUse && messages.length > 0 && messages[0].role === 'user' && Array.isArray(messages[0].content)) {
+        const allToolResults = (messages[0].content as Array<{ type: string }>).every(b => b.type === 'tool_result');
+        if (allToolResults) {
+          const orphaned = messages.shift()!;
+          tokens -= estimateTokens(messageText(orphaned)) + 4;
+        }
+      }
+    }
+
+    // Clean up any remaining orphaned user messages with only tool_result blocks
+    while (messages.length > 0 && messages[0].role === 'user' && Array.isArray(messages[0].content)) {
+      const allToolResults = (messages[0].content as Array<{ type: string }>).every(b => b.type === 'tool_result');
+      if (!allToolResults) break;
+      const orphaned = messages.shift()!;
+      tokens -= estimateTokens(messageText(orphaned)) + 4;
+    }
   }
 
   // Phase 2: Truncate the remaining user message if still over
@@ -311,6 +333,22 @@ export async function runAnthropicAgent(input: AnthropicAgentInput): Promise<voi
       break;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+
+      // Handle orphaned tool_use_ids after compression/history truncation
+      if (errorMsg.includes('tool_use_id') || errorMsg.includes('tool id') || errorMsg.includes('tool result')) {
+        log(`Tool ID mismatch, cleaning orphaned tool messages: ${errorMsg}`);
+        messages = messages.filter(m => {
+          if (m.role === 'user' && Array.isArray(m.content)) {
+            return !(m.content as Array<{ type: string }>).every(b => b.type === 'tool_result');
+          }
+          if (m.role === 'assistant' && Array.isArray(m.content)) {
+            return !(m.content as Array<{ type: string }>).some(b => b.type === 'tool_use');
+          }
+          return true;
+        });
+        iteration--;
+        continue;
+      }
 
       // Retry once with tighter budget if context length exceeded
       const modelLimit = parseContextLimit(errorMsg);

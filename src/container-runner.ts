@@ -289,6 +289,7 @@ export async function runContainerAgent(
       if (timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const timeoutLog = path.join(logsDir, `container-${ts}.log`);
+        fs.mkdirSync(logsDir, { recursive: true });
         fs.writeFileSync(timeoutLog, [
           `=== Container Run Log (TIMEOUT) ===`,
           `Timestamp: ${new Date().toISOString()}`,
@@ -384,6 +385,7 @@ export async function runContainerAgent(
         );
       }
 
+      fs.mkdirSync(logsDir, { recursive: true });
       fs.writeFileSync(logFile, logLines.join('\n'));
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 

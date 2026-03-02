@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Typography, Spin, Button, Empty, Popconfirm, Dropdown, App } from 'antd';
-import { FolderOutlined, DeleteOutlined, LockOutlined, MessageOutlined } from '@ant-design/icons';
-import { getWorkspaceFolders, cleanupOrphanFolders } from '../api';
-import type { FolderInfo } from '../api';
+import { FolderOutlined, FileOutlined, DeleteOutlined, LockOutlined, MessageOutlined, EyeOutlined } from '@ant-design/icons';
+import { getWorkspaceFolders, cleanupOrphanFolders, readRootFile, getRootFileRawUrl, writeRootFile, deleteRootFile } from '../api';
+import type { FolderInfo, FileEntry } from '../api';
 import { useT } from '../i18n';
 import { CHANNEL_ICONS } from './Icons';
+import { FilePreviewModal, formatSize } from './FilePreviewModal';
 
 const { Text } = Typography;
 
@@ -18,15 +19,17 @@ export function WorkspaceTab({ activeFolder, onSelectFolder, onSelectChat }: Pro
   const { t } = useT();
   const { message } = App.useApp();
   const [folders, setFolders] = useState<FolderInfo[]>([]);
+  const [rootFiles, setRootFiles] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [cleaning, setCleaning] = useState(false);
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
     getWorkspaceFolders()
-      .then(setFolders)
-      .catch(() => setFolders([]))
+      .then((data) => { setFolders(data.folders); setRootFiles(data.rootFiles); })
+      .catch(() => { setFolders([]); setRootFiles([]); })
       .finally(() => setLoading(false));
   };
 
@@ -45,11 +48,23 @@ export function WorkspaceTab({ activeFolder, onSelectFolder, onSelectChat }: Pro
     }
   };
 
+  const handleDeleteRootFile = async (fileName: string) => {
+    try {
+      await deleteRootFile(fileName);
+      load();
+    } catch { /* ignore */ }
+  };
+
+  // Callbacks for FilePreviewModal
+  const readFile = useCallback(async (fileName: string) => readRootFile(fileName), []);
+  const writeFile = useCallback(async (fileName: string, content: string) => writeRootFile(fileName, content), []);
+  const getRawUrl = useCallback((fileName: string, download?: boolean) => getRootFileRawUrl(fileName, download), []);
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>;
   }
 
-  if (folders.length === 0) {
+  if (folders.length === 0 && rootFiles.length === 0) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('ws.empty')} style={{ marginTop: 48 }} />;
   }
 
@@ -69,7 +84,6 @@ export function WorkspaceTab({ activeFolder, onSelectFolder, onSelectChat }: Pro
         const isHovered = hoveredFolder === f.folder;
         const isActive = f.folder === activeFolder;
 
-        // Build subtitle text
         let subtitle: string;
         if (f.protected) {
           subtitle = t('ws.reserved');
@@ -79,7 +93,6 @@ export function WorkspaceTab({ activeFolder, onSelectFolder, onSelectChat }: Pro
           subtitle = t('ws.orphan');
         }
 
-        // Chat navigation button (only when hovered and has conversations)
         let chatAction: React.ReactNode = null;
         if (convs.length === 1) {
           chatAction = (
@@ -170,6 +183,54 @@ export function WorkspaceTab({ activeFolder, onSelectFolder, onSelectChat }: Pro
           </div>
         );
       })}
+
+      {/* Root-level files */}
+      {rootFiles.map((f) => {
+        const isHovered = hoveredFolder === `__file__${f.name}`;
+        return (
+          <div
+            key={`__file__${f.name}`}
+            onClick={() => setPreviewFile(f.name)}
+            onMouseEnter={() => setHoveredFolder(`__file__${f.name}`)}
+            onMouseLeave={() => setHoveredFolder(null)}
+            style={{
+              cursor: 'pointer',
+              padding: '10px 12px',
+              borderRadius: 8,
+              marginBottom: 2,
+              background: 'transparent',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <FileOutlined style={{ fontSize: 18 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Text ellipsis style={{ display: 'block' }}>
+                {f.name}
+              </Text>
+              <Text type="secondary" ellipsis style={{ display: 'block', fontSize: 12 }}>
+                {formatSize(f.size)}
+              </Text>
+            </div>
+            <div style={{ display: 'flex', gap: 0, visibility: isHovered ? 'visible' : 'hidden' }}>
+              <Button type="text" size="small" icon={<EyeOutlined />} onClick={(e) => { e.stopPropagation(); setPreviewFile(f.name); }} />
+              <Popconfirm title={t('ws.deleteConfirm')} onConfirm={(e) => { e?.stopPropagation(); handleDeleteRootFile(f.name); }}>
+                <Button type="text" size="small" icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()} />
+              </Popconfirm>
+            </div>
+          </div>
+        );
+      })}
+
+      <FilePreviewModal
+        fileName={previewFile}
+        onClose={() => setPreviewFile(null)}
+        readFile={readFile}
+        writeFile={writeFile}
+        getRawUrl={getRawUrl}
+        onSaved={() => { message.success(t('ws.save')); load(); }}
+      />
     </div>
   );
 }

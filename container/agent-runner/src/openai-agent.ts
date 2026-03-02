@@ -98,7 +98,29 @@ function compressMessages(messages: ConversationMessage[], budget: number): Conv
 
   // Phase 1: Drop oldest messages between system (index 0) and the latest user message.
   // Preserve: system [0], the last user message, and any trailing assistant/tool messages.
+  // Tool call/result pairs are removed together to avoid orphaned tool_call_ids.
   while (tokens > budget && messages.length > 2) {
+    const msg = messages[1];
+
+    // Remove an assistant with tool_calls along with its subsequent tool result messages
+    if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+      const ids = new Set(msg.tool_calls.map(tc => tc.id));
+      tokens -= estimateTokens(messageText(msg)) + 4;
+      messages.splice(1, 1);
+      while (messages.length > 1 && messages[1].role === 'tool' && 'tool_call_id' in messages[1] && ids.has(messages[1].tool_call_id)) {
+        tokens -= estimateTokens(messageText(messages[1])) + 4;
+        messages.splice(1, 1);
+      }
+      continue;
+    }
+
+    // Remove orphaned tool result messages
+    if (msg.role === 'tool') {
+      tokens -= estimateTokens(messageText(msg)) + 4;
+      messages.splice(1, 1);
+      continue;
+    }
+
     const removed = messages.splice(1, 1)[0];
     tokens -= estimateTokens(messageText(removed)) + 4;
   }
@@ -286,9 +308,9 @@ export async function runOpenAIAgent(input: OpenAIAgentInput): Promise<void> {
         max_tokens: MAX_OUTPUT_TOKENS,
       });
 
-      const choice = response.choices[0];
+      const choice = response.choices?.[0];
       if (!choice) {
-        log('No choices returned from API');
+        log(`No choices returned from API: ${JSON.stringify(response).slice(0, 300)}`);
         break;
       }
 
@@ -336,6 +358,18 @@ export async function runOpenAIAgent(input: OpenAIAgentInput): Promise<void> {
       break;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+
+      // Handle orphaned tool_call_ids after compression/history truncation
+      if (errorMsg.includes('tool_call_id') || errorMsg.includes('tool id') || errorMsg.includes('tool result')) {
+        log(`Tool ID mismatch, cleaning orphaned tool messages: ${errorMsg}`);
+        messages = messages.filter(m => {
+          if (m.role === 'tool') return false;
+          if (m.role === 'assistant' && 'tool_calls' in m && m.tool_calls) return false;
+          return true;
+        });
+        iteration--;
+        continue;
+      }
 
       // Retry once with tighter budget if context length exceeded
       const modelLimit = parseContextLimit(errorMsg);

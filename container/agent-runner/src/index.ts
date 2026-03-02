@@ -200,7 +200,24 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      let queryResult;
+      try {
+        queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      } catch (queryErr) {
+        // Handle orphaned tool_result IDs after compaction/truncation.
+        // The API rejects tool_result blocks whose tool_use_id no longer
+        // exists in the conversation history (error 2013 / "tool id ... not found").
+        const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+        if (msg.includes('tool_use_id') || msg.includes('tool id') || msg.includes('tool result')) {
+          log(`Tool ID mismatch during resume, retrying with fresh session: ${msg}`);
+          sessionId = undefined;
+          resumeAt = undefined;
+          queryResult = await runQuery(prompt, undefined, mcpServerPath, containerInput, sdkEnv);
+        } else {
+          throw queryErr;
+        }
+      }
+
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
