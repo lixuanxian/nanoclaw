@@ -2,14 +2,12 @@ import { ChildProcess } from 'child_process';
 import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 
+import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import {
-  ASSISTANT_NAME,
-  IDLE_TIMEOUT,
-  MAIN_GROUP_FOLDER,
-  SCHEDULER_POLL_INTERVAL,
-  TIMEZONE,
-} from './config.js';
-import { ContainerOutput, runContainerAgent, writeTasksSnapshot } from './container-runner.js';
+  ContainerOutput,
+  runContainerAgent,
+  writeTasksSnapshot,
+} from './container-runner.js';
 import {
   getAllTasks,
   getDueTasks,
@@ -21,16 +19,60 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
-import { loadDefaultProviderConfig } from './channel-config.js';
-import { getProvider } from './providers.js';
 import { RegisteredGroup, ScheduledTask } from './types.js';
+
+/**
+ * Compute the next run time for a recurring task, anchored to the
+ * task's scheduled time rather than Date.now() to prevent cumulative
+ * drift on interval-based tasks.
+ *
+ * Co-authored-by: @community-pr-601
+ */
+export function computeNextRun(task: ScheduledTask): string | null {
+  if (task.schedule_type === 'once') return null;
+
+  const now = Date.now();
+
+  if (task.schedule_type === 'cron') {
+    const interval = CronExpressionParser.parse(task.schedule_value, {
+      tz: TIMEZONE,
+    });
+    return interval.next().toISOString();
+  }
+
+  if (task.schedule_type === 'interval') {
+    const ms = parseInt(task.schedule_value, 10);
+    if (!ms || ms <= 0) {
+      // Guard against malformed interval that would cause an infinite loop
+      logger.warn(
+        { taskId: task.id, value: task.schedule_value },
+        'Invalid interval value',
+      );
+      return new Date(now + 60_000).toISOString();
+    }
+    // Anchor to the scheduled time, not now, to prevent drift.
+    // Skip past any missed intervals so we always land in the future.
+    let next = new Date(task.next_run!).getTime() + ms;
+    while (next <= now) {
+      next += ms;
+    }
+    return new Date(next).toISOString();
+  }
+
+  return null;
+}
 
 export interface SchedulerDependencies {
   registeredGroups: () => Record<string, RegisteredGroup>;
   getSessions: () => Record<string, string>;
   queue: GroupQueue;
-  onProcess: (folder: string, proc: ChildProcess, containerName: string) => void;
-  sendMessage: (folder: string, text: string) => Promise<void>;
+  onProcess: (
+    groupJid: string,
+    proc: ChildProcess,
+    containerName: string,
+    groupFolder: string,
+  ) => void;
+  sendMessage: (jid: string, text: string) => Promise<void>;
 }
 
 async function runTask(
@@ -88,7 +130,7 @@ async function runTask(
   }
 
   // Update tasks snapshot for container to read (filtered by group)
-  const isMain = task.group_folder === MAIN_GROUP_FOLDER;
+  const isMain = group.isMain === true;
   const tasks = getAllTasks();
   writeTasksSnapshot(
     task.group_folder,
@@ -122,42 +164,34 @@ async function runTask(
     if (closeTimer) return; // already scheduled
     closeTimer = setTimeout(() => {
       logger.debug({ taskId: task.id }, 'Closing task container after result');
-      deps.queue.closeStdin(task.group_folder);
+      deps.queue.closeStdin(task.chat_jid);
     }, TASK_CLOSE_DELAY_MS);
   };
-
-  // Resolve AI provider: session config → global default → 'claude'
-  const defaultCfg = loadDefaultProviderConfig();
-  const providerId = group.containerConfig?.provider || defaultCfg.provider;
-  const providerConfig = getProvider(providerId);
-  const modelId = group.containerConfig?.model || defaultCfg.model || providerConfig?.defaultModel;
-  const apiBase = defaultCfg.api_base || providerConfig?.apiBase || '';
 
   try {
     const output = await runContainerAgent(
       group,
       {
         prompt: task.prompt,
-        sessionId: providerId === 'claude' ? sessionId : undefined,
+        sessionId,
         groupFolder: task.group_folder,
         chatJid: task.chat_jid,
         isMain,
         isScheduledTask: true,
         assistantName: ASSISTANT_NAME,
-        provider: providerId,
-        model: modelId,
-        providerApiBase: apiBase,
       },
-      (proc, containerName) => deps.onProcess(task.group_folder, proc, containerName),
+      (proc, containerName) =>
+        deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
-          // Forward result to all channels sharing this folder
-          await deps.sendMessage(task.group_folder, streamedOutput.result);
+          // Forward result to user (sendMessage handles formatting)
+          await deps.sendMessage(task.chat_jid, streamedOutput.result);
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {
-          deps.queue.notifyIdle(task.group_folder);
+          deps.queue.notifyIdle(task.chat_jid);
+          scheduleClose(); // Close promptly even when result is null (e.g. IPC-only tasks)
         }
         if (streamedOutput.status === 'error') {
           error = streamedOutput.error || 'Unknown error';
@@ -170,7 +204,7 @@ async function runTask(
     if (output.status === 'error') {
       error = output.error || 'Unknown error';
     } else if (output.result) {
-      // Messages are sent via MCP tool (IPC), result text is just logged
+      // Result was already forwarded to the user via the streaming callback above
       result = output.result;
     }
 
@@ -195,18 +229,7 @@ async function runTask(
     error,
   });
 
-  let nextRun: string | null = null;
-  if (task.schedule_type === 'cron') {
-    const interval = CronExpressionParser.parse(task.schedule_value, {
-      tz: TIMEZONE,
-    });
-    nextRun = interval.next().toISOString();
-  } else if (task.schedule_type === 'interval') {
-    const ms = parseInt(task.schedule_value, 10);
-    nextRun = new Date(Date.now() + ms).toISOString();
-  }
-  // 'once' tasks have no next run
-
+  const nextRun = computeNextRun(task);
   const resultSummary = error
     ? `Error: ${error}`
     : result
@@ -239,10 +262,8 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
           continue;
         }
 
-        deps.queue.enqueueTask(
-          currentTask.group_folder,
-          currentTask.id,
-          () => runTask(currentTask, deps),
+        deps.queue.enqueueTask(currentTask.chat_jid, currentTask.id, () =>
+          runTask(currentTask, deps),
         );
       }
     } catch (err) {

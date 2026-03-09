@@ -5,9 +5,11 @@ import {
   createTask,
   deleteTask,
   getAllChats,
+  getAllRegisteredGroups,
   getMessagesSince,
   getNewMessages,
   getTaskById,
+  setRegisteredGroup,
   storeChatMetadata,
   storeMessage,
   updateTask,
@@ -386,5 +388,85 @@ describe('task CRUD', () => {
 
     deleteTask('task-3');
     expect(getTaskById('task-3')).toBeUndefined();
+  });
+});
+
+// --- LIMIT behavior ---
+
+describe('message query LIMIT', () => {
+  beforeEach(() => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+
+    for (let i = 1; i <= 10; i++) {
+      store({
+        id: `lim-${i}`,
+        chat_jid: 'group@g.us',
+        sender: 'user@s.whatsapp.net',
+        sender_name: 'User',
+        content: `message ${i}`,
+        timestamp: `2024-01-01T00:00:${String(i).padStart(2, '0')}.000Z`,
+      });
+    }
+  });
+
+  it('getNewMessages returns all messages in chronological order', () => {
+    const { messages, newTimestamp } = getNewMessages(
+      ['group@g.us'],
+      '2024-01-01T00:00:00.000Z',
+      'Andy',
+    );
+    expect(messages.length).toBeGreaterThan(0);
+    // Chronological order preserved
+    for (let i = 1; i < messages.length; i++) {
+      expect(messages[i].timestamp >= messages[i - 1].timestamp).toBe(true);
+    }
+    // newTimestamp reflects latest returned row
+    expect(newTimestamp).toBe('2024-01-01T00:00:10.000Z');
+  });
+
+  it('getMessagesSince returns messages in chronological order', () => {
+    const messages = getMessagesSince(
+      'group@g.us',
+      '2024-01-01T00:00:00.000Z',
+      'Andy',
+    );
+    expect(messages.length).toBeGreaterThan(0);
+    for (let i = 1; i < messages.length; i++) {
+      expect(messages[i].timestamp >= messages[i - 1].timestamp).toBe(true);
+    }
+  });
+});
+
+// --- RegisteredGroup isMain round-trip ---
+
+describe('registered group isMain', () => {
+  it('persists isMain=true through set/get round-trip', () => {
+    setRegisteredGroup('main@s.whatsapp.net', {
+      name: 'Main Chat',
+      folder: 'whatsapp_main',
+      trigger: '@Andy',
+      added_at: '2024-01-01T00:00:00.000Z',
+      isMain: true,
+    });
+
+    const groups = getAllRegisteredGroups();
+    const group = groups['main@s.whatsapp.net'];
+    expect(group).toBeDefined();
+    expect(group.isMain).toBe(true);
+    expect(group.folder).toBe('whatsapp_main');
+  });
+
+  it('omits isMain for non-main groups', () => {
+    setRegisteredGroup('group@g.us', {
+      name: 'Family Chat',
+      folder: 'whatsapp_family-chat',
+      trigger: '@Andy',
+      added_at: '2024-01-01T00:00:00.000Z',
+    });
+
+    const groups = getAllRegisteredGroups();
+    const group = groups['group@g.us'];
+    expect(group).toBeDefined();
+    expect(group.isMain).toBeUndefined();
   });
 });

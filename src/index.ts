@@ -2,12 +2,30 @@ import { DingTalkChannel } from './channels/dingtalk.js';
 import { SlackChannel } from './channels/slack.js';
 import { WebChannel } from './channels/web.js';
 import { WhatsAppChannel } from './channels/whatsapp.js';
+import {
+  CREDENTIAL_PROXY_PORT,
+} from './config.js';
+import { startCredentialProxy } from './credential-proxy.js';
+import './channels/index.js';
+import {
+  getChannelFactory,
+  getRegisteredChannelNames,
+} from './channels/registry.js';
 import { writeGroupsSnapshot } from './container-runner.js';
-import { cleanupOrphans, ensureContainerRuntimeRunning } from './container-runtime.js';
+import {
+  cleanupOrphans,
+  ensureContainerRuntimeRunning,
+  PROXY_BIND_HOST,
+} from './container-runtime.js';
 import { initDatabase, storeMessage, storeChatMetadata } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { startIpcWatcher } from './ipc.js';
 import { broadcastToFolder, findChannel, formatOutbound } from './router.js';
+import {
+  isSenderAllowed,
+  loadSenderAllowlist,
+  shouldDropMessage,
+} from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage } from './types.js';
 import { applyAiConfigToEnv, isChannelConfigured, loadEnabledChannels, saveEnabledChannels } from './channel-config.js';
@@ -29,7 +47,25 @@ const queue = new GroupQueue();
 
 // Channel callbacks (shared by all channels)
 const channelOpts = {
-  onMessage: (_chatJid: string, msg: NewMessage) => storeMessage(msg),
+  onMessage: (chatJid: string, msg: NewMessage) => {
+    // Sender allowlist drop mode: discard messages from denied senders before storing
+    if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
+      const cfg = loadSenderAllowlist();
+      if (
+        shouldDropMessage(chatJid, cfg) &&
+        !isSenderAllowed(chatJid, msg.sender, cfg)
+      ) {
+        if (cfg.logDenied) {
+          logger.debug(
+            { chatJid, sender: msg.sender },
+            'sender-allowlist: dropping message (drop mode)',
+          );
+        }
+        return;
+      }
+    }
+    storeMessage(msg);
+  },
   onChatMetadata: (chatJid: string, timestamp: string, name?: string, channel?: string, isGroup?: boolean) =>
     storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
   registeredGroups: () => registeredGroups,
@@ -124,9 +160,16 @@ async function main(): Promise<void> {
   // Apply saved AI provider API keys to process.env
   applyAiConfigToEnv();
 
+  // Start credential proxy (containers route API calls through this)
+  const proxyServer = await startCredentialProxy(
+    CREDENTIAL_PROXY_PORT,
+    PROXY_BIND_HOST,
+  );
+
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
+    proxyServer.close();
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
@@ -143,10 +186,27 @@ async function main(): Promise<void> {
   await webChannel.connect();
   startWebServer(webChannel, { startChannelById, stopChannelById, getActiveChannelIds }, undefined, queue);
 
-  // Start remaining enabled channels
+  // Start skill-registered channels (channels that self-register via barrel import)
+  for (const channelName of getRegisteredChannelNames()) {
+    if (channels.find((c) => c.name === channelName)) continue; // Already running
+    const factory = getChannelFactory(channelName)!;
+    const channel = factory(channelOpts);
+    if (!channel) {
+      logger.warn(
+        { channel: channelName },
+        'Channel installed but credentials missing — skipping.',
+      );
+      continue;
+    }
+    channels.push(channel);
+    await channel.connect();
+  }
+
+  // Start remaining enabled channels (legacy explicit channel management)
   const enabledChannels = loadEnabledChannels();
   for (const id of enabledChannels) {
     if (id === 'web') continue; // Already started above
+    if (channels.find((c) => c.name === id)) continue; // Already started by registry
     await startChannelById(id);
   }
 
@@ -160,10 +220,19 @@ async function main(): Promise<void> {
     registeredGroups: () => registeredGroups,
     getSessions: () => sessions,
     queue,
-    onProcess: (folder, proc, containerName) => queue.registerProcess(folder, proc, containerName),
-    sendMessage: async (folder, rawText) => {
+    onProcess: (groupJid, proc, containerName, groupFolder) =>
+      queue.registerProcess(groupJid, proc, containerName, groupFolder),
+    sendMessage: async (jid, rawText) => {
       const text = formatOutbound(rawText);
-      if (text) await broadcastToFolder(channels, folder, registeredGroups, text);
+      if (!text) return;
+      const group = registeredGroups[jid];
+      if (group) {
+        await broadcastToFolder(channels, group.folder, registeredGroups, text);
+      } else {
+        const channel = findChannel(channels, jid);
+        if (channel) await channel.sendMessage(jid, text);
+        else logger.warn({ jid }, 'No channel owns JID, cannot send message');
+      }
     },
   });
   startIpcWatcher({
@@ -179,9 +248,16 @@ async function main(): Promise<void> {
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
-    syncGroupMetadata: (force) => whatsapp?.syncGroupMetadata(force) ?? Promise.resolve(),
+    syncGroups: async (force: boolean) => {
+      await Promise.all(
+        channels
+          .filter((ch) => ch.syncGroups)
+          .map((ch) => ch.syncGroups!(force)),
+      );
+    },
     getAvailableGroups,
-    writeGroupsSnapshot: (gf, im, ag, rj) => writeGroupsSnapshot(gf, im, ag, rj),
+    writeGroupsSnapshot: (gf, im, ag, rj) =>
+      writeGroupsSnapshot(gf, im, ag, rj),
   });
   queue.setProcessMessagesFn((folder) => processGroupMessages(folder, channels, queue));
   recoverPendingMessages(queue);
@@ -194,7 +270,8 @@ async function main(): Promise<void> {
 // Guard: only run when executed directly, not when imported by tests
 const isDirectRun =
   process.argv[1] &&
-  new URL(import.meta.url).pathname === new URL(`file://${process.argv[1]}`).pathname;
+  new URL(import.meta.url).pathname ===
+    new URL(`file://${process.argv[1]}`).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

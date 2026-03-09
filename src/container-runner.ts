@@ -10,16 +10,23 @@ import {
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
+  CREDENTIAL_PROXY_PORT,
+  DATA_DIR,
+  GROUPS_DIR,
   IDLE_TIMEOUT,
   TIMEZONE,
 } from './config.js';
-import { readEnvFile } from './env.js';
-import { resolveGroupFolderPath } from './group-folder.js';
+import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
-import { CONTAINER_RUNTIME_BIN, readonlyMountArgs, stopContainer } from './container-runtime.js';
-import { getProvider, getProviderSecretKeys } from './providers.js';
-import { loadAiConfig } from './channel-config.js';
-import { buildVolumeMounts, VolumeMount } from './container-mounts.js';
+import {
+  CONTAINER_HOST_GATEWAY,
+  CONTAINER_RUNTIME_BIN,
+  hostGatewayArgs,
+  readonlyMountArgs,
+  stopContainer,
+} from './container-runtime.js';
+import { detectAuthMode } from './credential-proxy.js';
+import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
 // Re-export for backwards compatibility
@@ -39,7 +46,6 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
-  secrets?: Record<string, string>;
   provider?: string;
   model?: string;
   providerApiBase?: string;
@@ -52,46 +58,170 @@ export interface ContainerOutput {
   error?: string;
 }
 
-/**
- * Read allowed secrets from .env for passing to the container via stdin.
- * Falls back to process.env for Claude credentials (e.g., set by `claude login`).
- * Secrets are never written to disk or mounted as files.
- */
-function readSecrets(): Record<string, string> {
-  const allKeys = [
-    'CLAUDE_CODE_OAUTH_TOKEN',
-    'ANTHROPIC_API_KEY',
-    ...getProviderSecretKeys(),
-  ];
-
-  const secrets = readEnvFile(allKeys);
-
-  // Fallback: check process.env for keys not found in .env
-  for (const key of allKeys) {
-    if (!secrets[key] && process.env[key]) {
-      secrets[key] = process.env[key]!;
-    }
-  }
-
-  // Inject ALL UI-configured API keys from channel-config.json
-  // (bypasses process.env so changes take effect without restart)
-  const aiConfig = loadAiConfig();
-  for (const [id, settings] of Object.entries(aiConfig.providers)) {
-    if (!settings.api_key) continue;
-    const providerConfig = getProvider(id);
-    if (providerConfig) {
-      secrets[providerConfig.secretEnvVar] = settings.api_key;
-    }
-  }
-
-  return secrets;
+interface VolumeMount {
+  hostPath: string;
+  containerPath: string;
+  readonly: boolean;
 }
 
-function buildContainerArgs(mounts: VolumeMount[], containerName: string): string[] {
+function buildVolumeMounts(
+  group: RegisteredGroup,
+  isMain: boolean,
+): VolumeMount[] {
+  const mounts: VolumeMount[] = [];
+  const projectRoot = process.cwd();
+  const groupDir = resolveGroupFolderPath(group.folder);
+
+  if (isMain) {
+    mounts.push({
+      hostPath: projectRoot,
+      containerPath: '/workspace/project',
+      readonly: true,
+    });
+
+    const envFile = path.join(projectRoot, '.env');
+    if (fs.existsSync(envFile)) {
+      mounts.push({
+        hostPath: '/dev/null',
+        containerPath: '/workspace/project/.env',
+        readonly: true,
+      });
+    }
+
+    mounts.push({
+      hostPath: groupDir,
+      containerPath: '/workspace/group',
+      readonly: false,
+    });
+  } else {
+    mounts.push({
+      hostPath: groupDir,
+      containerPath: '/workspace/group',
+      readonly: false,
+    });
+
+    const globalDir = path.join(GROUPS_DIR, 'global');
+    if (fs.existsSync(globalDir)) {
+      mounts.push({
+        hostPath: globalDir,
+        containerPath: '/workspace/global',
+        readonly: true,
+      });
+    }
+  }
+
+  const groupSessionsDir = path.join(
+    DATA_DIR,
+    'sessions',
+    group.folder,
+    '.claude',
+  );
+  fs.mkdirSync(groupSessionsDir, { recursive: true });
+  const settingsFile = path.join(groupSessionsDir, 'settings.json');
+  if (!fs.existsSync(settingsFile)) {
+    fs.writeFileSync(
+      settingsFile,
+      JSON.stringify(
+        {
+          env: {
+            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+            CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+  }
+
+  const skillsSrc = path.join(process.cwd(), 'container', 'skills');
+  const skillsDst = path.join(groupSessionsDir, 'skills');
+  if (fs.existsSync(skillsSrc)) {
+    for (const skillDir of fs.readdirSync(skillsSrc)) {
+      const srcDir = path.join(skillsSrc, skillDir);
+      if (!fs.statSync(srcDir).isDirectory()) continue;
+      const dstDir = path.join(skillsDst, skillDir);
+      fs.cpSync(srcDir, dstDir, { recursive: true });
+    }
+  }
+  mounts.push({
+    hostPath: groupSessionsDir,
+    containerPath: '/home/node/.claude',
+    readonly: false,
+  });
+
+  const groupIpcDir = resolveGroupIpcPath(group.folder);
+  fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
+  mounts.push({
+    hostPath: groupIpcDir,
+    containerPath: '/workspace/ipc',
+    readonly: false,
+  });
+
+  const agentRunnerSrc = path.join(
+    projectRoot,
+    'container',
+    'agent-runner',
+    'src',
+  );
+  const groupAgentRunnerDir = path.join(
+    DATA_DIR,
+    'sessions',
+    group.folder,
+    'agent-runner-src',
+  );
+  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
+    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+  }
+  mounts.push({
+    hostPath: groupAgentRunnerDir,
+    containerPath: '/app/src',
+    readonly: false,
+  });
+
+  if (group.containerConfig?.additionalMounts) {
+    const validatedMounts = validateAdditionalMounts(
+      group.containerConfig.additionalMounts,
+      group.name,
+      isMain,
+    );
+    mounts.push(...validatedMounts);
+  }
+
+  return mounts;
+}
+
+function buildContainerArgs(
+  mounts: VolumeMount[],
+  containerName: string,
+): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Route API traffic through the credential proxy (containers never see real secrets)
+  args.push(
+    '-e',
+    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
+  );
+
+  // Mirror the host's auth method with a placeholder value.
+  // API key mode: SDK sends x-api-key, proxy replaces with real key.
+  // OAuth mode:   SDK exchanges placeholder token for temp API key,
+  //               proxy injects real OAuth token on that exchange request.
+  const authMode = detectAuthMode();
+  if (authMode === 'api-key') {
+    args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+  } else {
+    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  }
+
+  // Runtime-specific args for host gateway resolution
+  args.push(...hostGatewayArgs());
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
@@ -170,12 +300,8 @@ export async function runContainerAgent(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    // Pass secrets via stdin (never written to disk or mounted as files)
-    input.secrets = readSecrets();
     container.stdin.write(JSON.stringify(input));
     container.stdin.end();
-    // Remove secrets from input so they don't appear in logs
-    delete input.secrets;
 
     // Streaming output: parse OUTPUT_START/END marker pairs as they arrive
     let parseBuffer = '';
@@ -265,10 +391,16 @@ export async function runContainerAgent(
 
     const killOnTimeout = () => {
       timedOut = true;
-      logger.error({ group: group.name, containerName }, 'Container timeout, stopping gracefully');
+      logger.error(
+        { group: group.name, containerName },
+        'Container timeout, stopping gracefully',
+      );
       exec(stopContainer(containerName), { timeout: 15000 }, (err) => {
         if (err) {
-          logger.warn({ group: group.name, containerName, err }, 'Graceful stop failed, force killing');
+          logger.warn(
+            { group: group.name, containerName, err },
+            'Graceful stop failed, force killing',
+          );
           container.kill('SIGKILL');
         }
       });
@@ -289,16 +421,18 @@ export async function runContainerAgent(
       if (timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const timeoutLog = path.join(logsDir, `container-${ts}.log`);
-        fs.mkdirSync(logsDir, { recursive: true });
-        fs.writeFileSync(timeoutLog, [
-          `=== Container Run Log (TIMEOUT) ===`,
-          `Timestamp: ${new Date().toISOString()}`,
-          `Group: ${group.name}`,
-          `Container: ${containerName}`,
-          `Duration: ${duration}ms`,
-          `Exit Code: ${code}`,
-          `Had Streaming Output: ${hadStreamingOutput}`,
-        ].join('\n'));
+        fs.writeFileSync(
+          timeoutLog,
+          [
+            `=== Container Run Log (TIMEOUT) ===`,
+            `Timestamp: ${new Date().toISOString()}`,
+            `Group: ${group.name}`,
+            `Container: ${containerName}`,
+            `Duration: ${duration}ms`,
+            `Exit Code: ${code}`,
+            `Had Streaming Output: ${hadStreamingOutput}`,
+          ].join('\n'),
+        );
 
         // Timeout after output = idle cleanup, not failure.
         // The agent already sent its response; this is just the
@@ -333,7 +467,8 @@ export async function runContainerAgent(
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const logFile = path.join(logsDir, `container-${timestamp}.log`);
-      const isVerbose = process.env.LOG_LEVEL === 'debug' || process.env.LOG_LEVEL === 'trace';
+      const isVerbose =
+        process.env.LOG_LEVEL === 'debug' || process.env.LOG_LEVEL === 'trace';
 
       const logLines = [
         `=== Container Run Log ===`,
@@ -477,7 +612,10 @@ export async function runContainerAgent(
 
     container.on('error', (err) => {
       clearTimeout(timeout);
-      logger.error({ group: group.name, containerName, error: err }, 'Container spawn error');
+      logger.error(
+        { group: group.name, containerName, error: err },
+        'Container spawn error',
+      );
       resolve({
         status: 'error',
         result: null,

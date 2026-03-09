@@ -74,7 +74,6 @@ async function main(): Promise<void> {
   try {
     const stdinData = await readStdin();
     containerInput = JSON.parse(stdinData);
-    // Delete the temp file the entrypoint wrote — it contains secrets
     try { fs.unlinkSync('/tmp/input.json'); } catch { /* may not exist */ }
     log(`Received input for group: ${containerInput.groupFolder}`);
   } catch (err) {
@@ -87,16 +86,7 @@ async function main(): Promise<void> {
   }
 
   // Provider routing
-  const provider = containerInput.provider || '';
-
-  if (!provider) {
-    writeOutput({
-      status: 'error',
-      result: 'No AI provider configured. Please set one in Settings → AI Model.',
-      error: 'No AI provider configured. Visit the Settings page to select a provider.',
-    });
-    process.exit(1);
-  }
+  const provider = containerInput.provider || 'claude';
 
   // OpenAI-compatible providers (non-Claude, non-Claude-compatible)
   if (provider !== 'claude' && provider !== 'claude-compatible') {
@@ -147,12 +137,8 @@ async function main(): Promise<void> {
   }
 
   // Claude and Claude-compatible providers use the Claude Agent SDK.
-  // For claude-compatible, override credentials with the user's API key/base URL
-  // so the SDK doesn't fall back to expired OAuth tokens.
+  // Credentials are injected by the host's credential proxy via ANTHROPIC_BASE_URL.
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
-  for (const [key, value] of Object.entries(containerInput.secrets || {})) {
-    sdkEnv[key] = value;
-  }
 
   if (provider === 'claude-compatible') {
     const apiKey = containerInput.secrets?.['CLAUDE_COMPATIBLE_API_KEY'];

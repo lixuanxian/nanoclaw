@@ -10,11 +10,11 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 vi.mock('./config.js', () => ({
   CONTAINER_IMAGE: 'nanoclaw-agent:latest',
   CONTAINER_MAX_OUTPUT_SIZE: 10485760,
-  CONTAINER_TIMEOUT: 15000, // 15s
+  CONTAINER_TIMEOUT: 1800000, // 30min
+  CREDENTIAL_PROXY_PORT: 3001,
   DATA_DIR: '/tmp/nanoclaw-test-data',
   GROUPS_DIR: '/tmp/nanoclaw-test-groups',
-  STORE_DIR: '/tmp/nanoclaw-test-store',
-  IDLE_TIMEOUT: 15000, // 15s
+  IDLE_TIMEOUT: 1800000, // 30min
   TIMEZONE: 'America/Los_Angeles',
 }));
 
@@ -140,8 +140,8 @@ describe('container-runner timeout behavior', () => {
     // Let output processing settle
     await vi.advanceTimersByTimeAsync(10);
 
-    // Fire the hard timeout (IDLE_TIMEOUT + 30s = 45000ms)
-    await vi.advanceTimersByTimeAsync(45000);
+    // Fire the hard timeout (IDLE_TIMEOUT + 30s = 1830000ms)
+    await vi.advanceTimersByTimeAsync(1830000);
 
     // Emit close event (as if container was stopped by the timeout)
     fakeProc.emit('close', 137);

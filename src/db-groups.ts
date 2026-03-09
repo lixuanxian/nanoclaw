@@ -189,8 +189,8 @@ export function setRegisteredGroup(
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
   getDb().prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
@@ -199,6 +199,7 @@ export function setRegisteredGroup(
     group.added_at,
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
     group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
+    group.isMain ? 1 : 0,
   );
 }
 
@@ -213,6 +214,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     added_at: string;
     container_config: string | null;
     requires_trigger: number | null;
+    is_main: number | null;
   }>;
   const result: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
@@ -232,6 +234,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
         ? JSON.parse(row.container_config)
         : undefined,
       requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+      isMain: row.is_main === 1 ? true : undefined,
     };
   }
   return result;

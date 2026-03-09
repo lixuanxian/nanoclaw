@@ -3,6 +3,7 @@ import {
   IDLE_TIMEOUT,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
+  TIMEZONE,
   TRIGGER_PATTERN,
 } from './config.js';
 import {
@@ -80,7 +81,7 @@ export async function processGroupMessages(
   const hasSession = !!state.sessions[group.folder];
   const prompt = (hasSession && missedMessages.length === 1)
     ? missedMessages[0].content
-    : formatMessages(missedMessages);
+    : formatMessages(missedMessages, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -369,7 +370,7 @@ export async function startMessageLoop(
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : folderMessages;
-          const formatted = formatMessages(messagesToSend);
+          const formatted = formatMessages(messagesToSend, TIMEZONE);
 
           if (queue.sendMessage(folder, formatted)) {
             logger.debug(

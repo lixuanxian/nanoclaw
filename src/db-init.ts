@@ -80,7 +80,8 @@ function createSchema(database: Database.Database): void {
       trigger_pattern TEXT NOT NULL,
       added_at TEXT NOT NULL,
       container_config TEXT,
-      requires_trigger INTEGER DEFAULT 1
+      requires_trigger INTEGER DEFAULT 1,
+      is_main INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_rg_folder ON registered_groups(folder);
 
@@ -108,6 +109,19 @@ function createSchema(database: Database.Database): void {
     database.prepare(
       `UPDATE messages SET is_bot_message = 1 WHERE content LIKE ?`,
     ).run(`${ASSISTANT_NAME}:%`);
+  } catch {
+    /* column already exists */
+  }
+
+  // Add is_main column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(
+      `ALTER TABLE registered_groups ADD COLUMN is_main INTEGER DEFAULT 0`,
+    );
+    // Backfill: existing rows with folder = 'main' are the main group
+    database.exec(
+      `UPDATE registered_groups SET is_main = 1 WHERE folder = 'main'`,
+    );
   } catch {
     /* column already exists */
   }
