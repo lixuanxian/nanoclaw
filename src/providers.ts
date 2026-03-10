@@ -97,9 +97,11 @@ export function getProvider(id: string): ProviderConfig | undefined {
   const genericDefaultModel = process.env['AI_DEFAULT_MODEL'];
 
   const finalApiBase = envApiBase || base.apiBase || genericApiBase;
-  const finalDefaultModel = envDefaultModel || base.defaultModel || genericDefaultModel;
+  const finalDefaultModel =
+    envDefaultModel || base.defaultModel || genericDefaultModel;
 
-  if (finalApiBase === base.apiBase && finalDefaultModel === base.defaultModel) return base;
+  if (finalApiBase === base.apiBase && finalDefaultModel === base.defaultModel)
+    return base;
 
   return {
     ...base,

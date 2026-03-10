@@ -8,18 +8,20 @@ import { NewMessage } from './types.js';
  * Only call this for registered groups where message history is needed.
  */
 export function storeMessage(msg: NewMessage): void {
-  getDb().prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    msg.id,
-    msg.chat_jid,
-    msg.sender,
-    msg.sender_name,
-    msg.content,
-    msg.timestamp,
-    msg.is_from_me ? 1 : 0,
-    msg.is_bot_message ? 1 : 0,
-  );
+  getDb()
+    .prepare(
+      `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      msg.id,
+      msg.chat_jid,
+      msg.sender,
+      msg.sender_name,
+      msg.content,
+      msg.timestamp,
+      msg.is_from_me ? 1 : 0,
+      msg.is_bot_message ? 1 : 0,
+    );
 }
 
 /**
@@ -35,18 +37,20 @@ export function storeMessageDirect(msg: {
   is_from_me: boolean;
   is_bot_message?: boolean;
 }): void {
-  getDb().prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    msg.id,
-    msg.chat_jid,
-    msg.sender,
-    msg.sender_name,
-    msg.content,
-    msg.timestamp,
-    msg.is_from_me ? 1 : 0,
-    msg.is_bot_message ? 1 : 0,
-  );
+  getDb()
+    .prepare(
+      `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      msg.id,
+      msg.chat_jid,
+      msg.sender,
+      msg.sender_name,
+      msg.content,
+      msg.timestamp,
+      msg.is_from_me ? 1 : 0,
+      msg.is_bot_message ? 1 : 0,
+    );
 }
 
 export function getNewMessages(
@@ -102,28 +106,43 @@ export function getMessagesSince(
 
 /** Get all messages for a chat (both user and bot), ordered chronologically. */
 export function getAllMessagesForChat(chatJid: string): NewMessage[] {
-  return getDb().prepare(`
+  return getDb()
+    .prepare(
+      `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
     FROM messages
     WHERE chat_jid = ?
     ORDER BY timestamp
-  `).all(chatJid) as NewMessage[];
+  `,
+    )
+    .all(chatJid) as NewMessage[];
 }
 
 /** Return `limit` messages older than `before` timestamp, ordered oldest->newest. */
-export function getMessagesBefore(chatJid: string, before: string, limit: number): NewMessage[] {
-  return getDb().prepare(`
+export function getMessagesBefore(
+  chatJid: string,
+  before: string,
+  limit: number,
+): NewMessage[] {
+  return getDb()
+    .prepare(
+      `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
     FROM messages
     WHERE chat_jid = ? AND timestamp < ?
     ORDER BY timestamp DESC
     LIMIT ?
-  `).all(chatJid, before, limit).reverse() as NewMessage[];
+  `,
+    )
+    .all(chatJid, before, limit)
+    .reverse() as NewMessage[];
 }
 
 /** Count total messages for a chat. */
 export function countMessagesForChat(chatJid: string): number {
-  const row = getDb().prepare('SELECT COUNT(*) as cnt FROM messages WHERE chat_jid = ?').get(chatJid) as { cnt: number };
+  const row = getDb()
+    .prepare('SELECT COUNT(*) as cnt FROM messages WHERE chat_jid = ?')
+    .get(chatJid) as { cnt: number };
   return row.cnt;
 }
 
@@ -154,62 +173,91 @@ export function getMessagesSinceMultiJid(
 export function getAllMessagesForJids(jids: string[]): NewMessage[] {
   if (jids.length === 0) return [];
   const placeholders = jids.map(() => '?').join(',');
-  return getDb().prepare(`
+  return getDb()
+    .prepare(
+      `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
     FROM messages
     WHERE chat_jid IN (${placeholders})
     ORDER BY timestamp
-  `).all(...jids) as NewMessage[];
+  `,
+    )
+    .all(...jids) as NewMessage[];
 }
 
 /** Count total messages across multiple JIDs. */
 export function countMessagesForJids(jids: string[]): number {
   if (jids.length === 0) return 0;
   const placeholders = jids.map(() => '?').join(',');
-  const row = getDb().prepare(
-    `SELECT COUNT(*) as cnt FROM messages WHERE chat_jid IN (${placeholders})`,
-  ).get(...jids) as { cnt: number };
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) as cnt FROM messages WHERE chat_jid IN (${placeholders})`,
+    )
+    .get(...jids) as { cnt: number };
   return row.cnt;
 }
 
 /** Return `limit` messages older than `before` timestamp across multiple JIDs. */
-export function getMessagesBeforeMultiJid(jids: string[], before: string, limit: number): NewMessage[] {
+export function getMessagesBeforeMultiJid(
+  jids: string[],
+  before: string,
+  limit: number,
+): NewMessage[] {
   if (jids.length === 0) return [];
   const placeholders = jids.map(() => '?').join(',');
-  return getDb().prepare(`
+  return getDb()
+    .prepare(
+      `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
     FROM messages
     WHERE chat_jid IN (${placeholders}) AND timestamp < ?
     ORDER BY timestamp DESC
     LIMIT ?
-  `).all(...jids, before, limit).reverse() as NewMessage[];
+  `,
+    )
+    .all(...jids, before, limit)
+    .reverse() as NewMessage[];
 }
 
 // --- Delete / Update ---
 
 /** Delete a single message by its composite PK. FTS5 triggers auto-sync. */
 export function deleteMessageById(id: string, chatJid: string): void {
-  getDb().prepare('DELETE FROM messages WHERE id = ? AND chat_jid = ?').run(id, chatJid);
+  getDb()
+    .prepare('DELETE FROM messages WHERE id = ? AND chat_jid = ?')
+    .run(id, chatJid);
 }
 
 /** Update the content of a single message. FTS5 triggers auto-sync. */
-export function updateMessageContent(id: string, chatJid: string, content: string): void {
-  getDb().prepare('UPDATE messages SET content = ? WHERE id = ? AND chat_jid = ?').run(content, id, chatJid);
+export function updateMessageContent(
+  id: string,
+  chatJid: string,
+  content: string,
+): void {
+  getDb()
+    .prepare('UPDATE messages SET content = ? WHERE id = ? AND chat_jid = ?')
+    .run(content, id, chatJid);
 }
 
 /** Delete all messages in a chat that come after a given timestamp. Returns number deleted. */
-export function deleteMessagesAfter(chatJid: string, afterTimestamp: string): number {
-  const result = getDb().prepare(
-    'DELETE FROM messages WHERE chat_jid = ? AND timestamp > ?',
-  ).run(chatJid, afterTimestamp);
+export function deleteMessagesAfter(
+  chatJid: string,
+  afterTimestamp: string,
+): number {
+  const result = getDb()
+    .prepare('DELETE FROM messages WHERE chat_jid = ? AND timestamp > ?')
+    .run(chatJid, afterTimestamp);
   return result.changes;
 }
 
 /** Get the timestamp of a message by its composite PK. */
-export function getMessageTimestamp(id: string, chatJid: string): string | null {
-  const row = getDb().prepare(
-    'SELECT timestamp FROM messages WHERE id = ? AND chat_jid = ?',
-  ).get(id, chatJid) as { timestamp: string } | undefined;
+export function getMessageTimestamp(
+  id: string,
+  chatJid: string,
+): string | null {
+  const row = getDb()
+    .prepare('SELECT timestamp FROM messages WHERE id = ? AND chat_jid = ?')
+    .get(id, chatJid) as { timestamp: string } | undefined;
   return row?.timestamp ?? null;
 }
 
@@ -237,18 +285,26 @@ function escapeLike(text: string): string {
 }
 
 /** Build a snippet with <mark> highlighting around the matched term. */
-function highlightSnippet(content: string, query: string, contextChars = 60): string {
+function highlightSnippet(
+  content: string,
+  query: string,
+  contextChars = 60,
+): string {
   const lower = content.toLowerCase();
   const qLower = query.toLowerCase();
   const idx = lower.indexOf(qLower);
   if (idx === -1) {
-    return content.length > contextChars * 2 ? content.slice(0, contextChars * 2) + '...' : content;
+    return content.length > contextChars * 2
+      ? content.slice(0, contextChars * 2) + '...'
+      : content;
   }
   const start = Math.max(0, idx - contextChars);
   const end = Math.min(content.length, idx + query.length + contextChars);
   const before = (start > 0 ? '...' : '') + content.slice(start, idx);
   const match = content.slice(idx, idx + query.length);
-  const after = content.slice(idx + query.length, end) + (end < content.length ? '...' : '');
+  const after =
+    content.slice(idx + query.length, end) +
+    (end < content.length ? '...' : '');
   return `${before}<mark>${match}</mark>${after}`;
 }
 
@@ -281,7 +337,10 @@ function searchMessagesLike(
   params.unshift(pattern, pattern);
   params.push(limit, offset);
 
-  const rows = db.prepare(sql).all(...params) as Omit<SearchResult, 'snippet'>[];
+  const rows = db.prepare(sql).all(...params) as Omit<
+    SearchResult,
+    'snippet'
+  >[];
   return rows.map((r) => ({
     ...r,
     snippet: highlightSnippet(r.content, query),
@@ -341,7 +400,10 @@ export function searchMessages(
   try {
     return db.prepare(sql).all(...params) as SearchResult[];
   } catch (err) {
-    logger.warn({ err, query: safeQuery }, 'FTS5 search failed, falling back to LIKE');
+    logger.warn(
+      { err, query: safeQuery },
+      'FTS5 search failed, falling back to LIKE',
+    );
     return searchMessagesLike(query, jids, limit, offset);
   }
 }

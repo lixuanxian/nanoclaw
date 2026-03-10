@@ -35,7 +35,10 @@ export function loadChannelConfig(channelId: string): Record<string, string> {
   return readAll()[channelId] || {};
 }
 
-export function saveChannelConfig(channelId: string, config: Record<string, string>): void {
+export function saveChannelConfig(
+  channelId: string,
+  config: Record<string, string>,
+): void {
   const all = readAll();
   // Remove empty values
   const cleaned: Record<string, string> = {};
@@ -56,10 +59,18 @@ export function isChannelConfigured(channelId: string): boolean {
 }
 
 /** Return config with secret values masked (for API responses). */
-export function loadChannelConfigRedacted(channelId: string): Record<string, string> {
+export function loadChannelConfigRedacted(
+  channelId: string,
+): Record<string, string> {
   const config = loadChannelConfig(channelId);
   const redacted: Record<string, string> = {};
-  const secretKeys = new Set(['secret', 'signing_secret', 'bot_token', 'app_token', 'client_secret']);
+  const secretKeys = new Set([
+    'secret',
+    'signing_secret',
+    'bot_token',
+    'app_token',
+    'client_secret',
+  ]);
   for (const [k, v] of Object.entries(config)) {
     if (secretKeys.has(k) && v.length > 4) {
       redacted[k] = v.slice(0, 4) + '****';
@@ -163,9 +174,12 @@ export function loadAiConfigRedacted(): AiConfig {
   for (const [id, settings] of Object.entries(config.providers)) {
     redacted[id] = {
       ...settings,
-      api_key: settings.api_key?.length > 4
-        ? settings.api_key.slice(0, 4) + '****'
-        : settings.api_key ? '****' : '',
+      api_key:
+        settings.api_key?.length > 4
+          ? settings.api_key.slice(0, 4) + '****'
+          : settings.api_key
+            ? '****'
+            : '',
     };
   }
   return { default_provider: config.default_provider, providers: redacted };
@@ -195,9 +209,11 @@ function isClaudeCliAvailable(): boolean {
  */
 export function loadDefaultProviderConfig(): ResolvedProviderConfig {
   const config = loadAiConfig();
-  const providerId = config.default_provider || (isClaudeCliAvailable() ? 'claude' : '');
+  const providerId =
+    config.default_provider || (isClaudeCliAvailable() ? 'claude' : '');
   const providerConfig = providerId ? getProvider(providerId) : undefined;
-  const settings = (providerId && config.providers[providerId]) || emptySettings();
+  const settings =
+    (providerId && config.providers[providerId]) || emptySettings();
 
   return {
     provider: providerId,
@@ -205,6 +221,38 @@ export function loadDefaultProviderConfig(): ResolvedProviderConfig {
     api_base: settings.api_base || providerConfig?.apiBase || '',
     api_key: settings.api_key || '',
   };
+}
+
+// --- Admin password persistence ---
+
+const ADMIN_CONFIG_KEY = '_admin';
+
+/** Load the saved admin password (empty string if not set). */
+export function loadAdminPassword(): string {
+  const all = readAll();
+  const admin = all[ADMIN_CONFIG_KEY];
+  if (admin && typeof admin === 'object' && typeof admin.password === 'string') {
+    return admin.password;
+  }
+  return '';
+}
+
+/** Save admin password to persistent config. */
+export function saveAdminPassword(password: string): void {
+  const all = readAll();
+  if (password) {
+    all[ADMIN_CONFIG_KEY] = { password };
+  } else {
+    delete all[ADMIN_CONFIG_KEY];
+  }
+  writeAll(all);
+}
+
+/** Remove admin password from persistent config. */
+export function clearAdminPassword(): void {
+  const all = readAll();
+  delete all[ADMIN_CONFIG_KEY];
+  writeAll(all);
 }
 
 // --- Enabled channels persistence ---
@@ -238,7 +286,8 @@ export function applyAiConfigToEnv(): void {
       process.env[providerConfig.secretEnvVar] = settings.api_key;
     }
     if (settings.api_base) {
-      process.env[`${id.toUpperCase().replace(/-/g, '_')}_API_BASE`] = settings.api_base;
+      process.env[`${id.toUpperCase().replace(/-/g, '_')}_API_BASE`] =
+        settings.api_base;
     }
   }
 }

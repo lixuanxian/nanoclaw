@@ -82,7 +82,11 @@ export class SlackChannel implements Channel {
     return jid.endsWith(SLACK_JID_SUFFIX);
   }
 
-  async sendMessage(jid: string, text: string, options?: SendMessageOptions): Promise<void> {
+  async sendMessage(
+    jid: string,
+    text: string,
+    options?: SendMessageOptions,
+  ): Promise<void> {
     const channelId = jid.replace(SLACK_JID_SUFFIX, '');
 
     try {
@@ -219,8 +223,7 @@ export class SlackChannel implements Channel {
 
     try {
       const result = await this.app!.client.users.info({ user: userId });
-      const name =
-        result.user?.real_name || result.user?.name || userId;
+      const name = result.user?.real_name || result.user?.name || userId;
       this.userNameCache.set(userId, name);
       return name;
     } catch (err) {

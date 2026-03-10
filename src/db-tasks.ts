@@ -4,29 +4,31 @@ import { ScheduledTask, TaskRunLog } from './types.js';
 export function createTask(
   task: Omit<ScheduledTask, 'last_run' | 'last_result'>,
 ): void {
-  getDb().prepare(
-    `
+  getDb()
+    .prepare(
+      `
     INSERT INTO scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
-  ).run(
-    task.id,
-    task.group_folder,
-    task.chat_jid,
-    task.prompt,
-    task.schedule_type,
-    task.schedule_value,
-    task.context_mode || 'isolated',
-    task.next_run,
-    task.status,
-    task.created_at,
-  );
+    )
+    .run(
+      task.id,
+      task.group_folder,
+      task.chat_jid,
+      task.prompt,
+      task.schedule_type,
+      task.schedule_value,
+      task.context_mode || 'isolated',
+      task.next_run,
+      task.status,
+      task.created_at,
+    );
 }
 
 export function getTaskById(id: string): ScheduledTask | undefined {
-  return getDb().prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as
-    | ScheduledTask
-    | undefined;
+  return getDb()
+    .prepare('SELECT * FROM scheduled_tasks WHERE id = ?')
+    .get(id) as ScheduledTask | undefined;
 }
 
 export function getTasksForGroup(groupFolder: string): ScheduledTask[] {
@@ -48,7 +50,12 @@ export function updateTask(
   updates: Partial<
     Pick<
       ScheduledTask,
-      'prompt' | 'schedule_type' | 'schedule_value' | 'next_run' | 'status' | 'context_mode'
+      | 'prompt'
+      | 'schedule_type'
+      | 'schedule_value'
+      | 'next_run'
+      | 'status'
+      | 'context_mode'
     >
   >,
 ): void {
@@ -83,9 +90,9 @@ export function updateTask(
   if (fields.length === 0) return;
 
   values.push(id);
-  getDb().prepare(
-    `UPDATE scheduled_tasks SET ${fields.join(', ')} WHERE id = ?`,
-  ).run(...values);
+  getDb()
+    .prepare(`UPDATE scheduled_tasks SET ${fields.join(', ')} WHERE id = ?`)
+    .run(...values);
 }
 
 export function deleteTask(id: string): void {
@@ -113,29 +120,33 @@ export function updateTaskAfterRun(
   lastResult: string,
 ): void {
   const now = new Date().toISOString();
-  getDb().prepare(
-    `
+  getDb()
+    .prepare(
+      `
     UPDATE scheduled_tasks
     SET next_run = ?, last_run = ?, last_result = ?, status = CASE WHEN ? IS NULL THEN 'completed' ELSE status END
     WHERE id = ?
   `,
-  ).run(nextRun, now, lastResult, nextRun, id);
+    )
+    .run(nextRun, now, lastResult, nextRun, id);
 }
 
 export function logTaskRun(log: TaskRunLog): void {
-  getDb().prepare(
-    `
+  getDb()
+    .prepare(
+      `
     INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
     VALUES (?, ?, ?, ?, ?, ?)
   `,
-  ).run(
-    log.task_id,
-    log.run_at,
-    log.duration_ms,
-    log.status,
-    log.result,
-    log.error,
-  );
+    )
+    .run(
+      log.task_id,
+      log.run_at,
+      log.duration_ms,
+      log.status,
+      log.result,
+      log.error,
+    );
 }
 
 export function getTaskRunLogs(taskId: string): TaskRunLog[] {

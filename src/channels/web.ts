@@ -2,13 +2,23 @@ import crypto from 'crypto';
 
 import { ASSISTANT_NAME, DEFAULT_SYNC_FOLDER } from '../config.js';
 import { logger } from '../logger.js';
-import { Channel, OnInboundMessage, OnChatMetadata, RegisteredGroup, SendMessageOptions } from '../types.js';
+import {
+  Channel,
+  OnInboundMessage,
+  OnChatMetadata,
+  RegisteredGroup,
+  SendMessageOptions,
+} from '../types.js';
 
 const WEB_JID_SUFFIX = '@web.nanoclaw';
 
 /** Escape special characters for use in XML attribute values. */
 function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 export interface WebChannelOpts {
@@ -65,7 +75,11 @@ export class WebChannel implements Channel {
     return jid.endsWith(WEB_JID_SUFFIX);
   }
 
-  async sendMessage(jid: string, text: string, options?: SendMessageOptions): Promise<void> {
+  async sendMessage(
+    jid: string,
+    text: string,
+    options?: SendMessageOptions,
+  ): Promise<void> {
     const sessionId = jid.replace(WEB_JID_SUFFIX, '');
     const ws = this.connections.get(sessionId);
 
@@ -79,7 +93,10 @@ export class WebChannel implements Channel {
       const queue = this.pendingMessages.get(sessionId) || [];
       queue.push(payload);
       this.pendingMessages.set(sessionId, queue);
-      logger.debug({ sessionId, queueSize: queue.length }, 'Web message queued (no active WS)');
+      logger.debug(
+        { sessionId, queueSize: queue.length },
+        'Web message queued (no active WS)',
+      );
     }
 
     if (!options?.skipStore) {
@@ -130,7 +147,10 @@ export class WebChannel implements Channel {
         ws.send(msg);
       }
       this.pendingMessages.delete(sessionId);
-      logger.debug({ sessionId, count: pending.length }, 'Flushed pending web messages');
+      logger.debug(
+        { sessionId, count: pending.length },
+        'Flushed pending web messages',
+      );
     }
   }
 
@@ -155,7 +175,14 @@ export class WebChannel implements Channel {
     return this.sessionSkills.get(sessionId);
   }
 
-  handleMessage(sessionId: string, text: string, files?: UploadedFile[], mode?: 'plan' | 'edit', skills?: string[], targetFolder?: string): void {
+  handleMessage(
+    sessionId: string,
+    text: string,
+    files?: UploadedFile[],
+    mode?: 'plan' | 'edit',
+    skills?: string[],
+    targetFolder?: string,
+  ): void {
     if (mode) this.sessionModes.set(sessionId, mode);
     if (skills) this.sessionSkills.set(sessionId, skills);
 
@@ -163,8 +190,9 @@ export class WebChannel implements Channel {
 
     let content = text;
     if (files && files.length > 0) {
-      const lines = files.map(f =>
-        `<file name="${escapeAttr(f.name)}" path="/workspace/group/uploads/${f.storedName}" type="${f.type}" size="${f.size}" />`
+      const lines = files.map(
+        (f) =>
+          `<file name="${escapeAttr(f.name)}" path="/workspace/group/uploads/${f.storedName}" type="${f.type}" size="${f.size}" />`,
       );
       const block = `<attachments>\n${lines.join('\n')}\n</attachments>`;
       content = text ? `${text}\n\n${block}` : block;
@@ -206,9 +234,12 @@ export class WebChannel implements Channel {
       } else {
         // Use default sync folder unless another web session already has it
         const hasDefaultWeb = Object.entries(groups).some(
-          ([j, g]) => j.endsWith(WEB_JID_SUFFIX) && g.folder === DEFAULT_SYNC_FOLDER,
+          ([j, g]) =>
+            j.endsWith(WEB_JID_SUFFIX) && g.folder === DEFAULT_SYNC_FOLDER,
         );
-        folder = hasDefaultWeb ? `web-${sessionId.slice(0, 8)}` : DEFAULT_SYNC_FOLDER;
+        folder = hasDefaultWeb
+          ? `web-${sessionId.slice(0, 8)}`
+          : DEFAULT_SYNC_FOLDER;
       }
 
       // Don't bake AI config into the group — the global AI config
@@ -222,7 +253,13 @@ export class WebChannel implements Channel {
       });
 
       // Register chat metadata
-      this.opts.onChatMetadata(jid, new Date().toISOString(), 'Web Chat', 'web', false);
+      this.opts.onChatMetadata(
+        jid,
+        new Date().toISOString(),
+        'Web Chat',
+        'web',
+        false,
+      );
     }
 
     return jid;

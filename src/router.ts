@@ -26,7 +26,10 @@ export function formatMessages(
 }
 
 export function stripInternalTags(text: string): string {
-  return text.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+  return text
+    .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .trim();
 }
 
 export function formatOutbound(rawText: string): string {
@@ -81,7 +84,10 @@ export async function broadcastToFolder(
       try {
         await ch.sendMessage(jid, text, { skipStore: jid !== storeJid });
       } catch (err) {
-        logger.error({ jid, channel: ch.name, err }, 'Failed to send to channel in broadcast');
+        logger.error(
+          { jid, channel: ch.name, err },
+          'Failed to send to channel in broadcast',
+        );
       }
     }),
   );

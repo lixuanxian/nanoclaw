@@ -83,9 +83,7 @@ export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // Channels to enable (comma-separated). Default: both whatsapp and web.
-export const CHANNELS = (
-  process.env.CHANNELS || envConfig.CHANNELS || 'web'
-)
+export const CHANNELS = (process.env.CHANNELS || envConfig.CHANNELS || 'web')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -95,9 +93,14 @@ export const WEB_PORT = parseInt(
   process.env.WEB_PORT || envConfig.WEB_PORT || '3030',
   10,
 );
-export const WEB_HOST =
-  process.env.WEB_HOST || envConfig.WEB_HOST || '0.0.0.0';
+export const WEB_HOST = process.env.WEB_HOST || envConfig.WEB_HOST || '0.0.0.0';
 
-// Admin password for web UI (empty = no auth)
-export const ADMIN_PASSWORD =
+// Admin password for web UI (empty = no auth).
+// Mutable so it can be updated at runtime from the Settings page.
+export let ADMIN_PASSWORD =
   process.env.ADMIN_PASSWORD || envConfig.ADMIN_PASSWORD || '';
+
+/** Update the in-memory admin password (call after persisting to config). */
+export function setAdminPassword(pw: string): void {
+  ADMIN_PASSWORD = pw;
+}

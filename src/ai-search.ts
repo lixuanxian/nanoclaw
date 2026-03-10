@@ -3,13 +3,16 @@
  * Sends a natural language query to the configured AI provider,
  * which returns optimised FTS5 search keywords.
  */
-import { loadDefaultProviderConfig, type ResolvedProviderConfig } from './channel-config.js';
+import {
+  loadDefaultProviderConfig,
+  type ResolvedProviderConfig,
+} from './channel-config.js';
 import { getProvider } from './providers.js';
 import { logger } from './logger.js';
 
 const SYSTEM_PROMPTS: Record<string, string> = {
   en:
-    'You are a search keyword extractor. Given a user\'s natural language query, ' +
+    "You are a search keyword extractor. Given a user's natural language query, " +
     'extract the most relevant search keywords for a full-text search database. ' +
     'Return ONLY the keywords separated by spaces, nothing else. ' +
     'Do not explain, do not wrap in tags, do not add any other text.',
@@ -42,7 +45,9 @@ export async function extractSearchKeywords(
   // Get API key: prefer settings page, fall back to env var
   const providerDef = getProvider(config.provider);
   const apiKey =
-    config.api_key || (providerDef ? process.env[providerDef.secretEnvVar] : '') || '';
+    config.api_key ||
+    (providerDef ? process.env[providerDef.secretEnvVar] : '') ||
+    '';
 
   if (!apiKey) {
     return { keywords: query, error: 'API key not configured' };
@@ -51,13 +56,22 @@ export async function extractSearchKeywords(
   const systemPrompt = SYSTEM_PROMPTS[lang] || SYSTEM_PROMPTS.en;
 
   try {
-    if (config.provider === 'claude' || config.provider === 'claude-compatible') {
+    if (
+      config.provider === 'claude' ||
+      config.provider === 'claude-compatible'
+    ) {
       return await callAnthropic(apiKey, config, query, systemPrompt);
     }
     return await callOpenAI(apiKey, config, query, systemPrompt);
   } catch (err) {
-    logger.warn({ err, provider: config.provider }, 'AI keyword extraction failed');
-    return { keywords: query, error: err instanceof Error ? err.message : 'AI extraction failed' };
+    logger.warn(
+      { err, provider: config.provider },
+      'AI keyword extraction failed',
+    );
+    return {
+      keywords: query,
+      error: err instanceof Error ? err.message : 'AI extraction failed',
+    };
   }
 }
 
@@ -89,7 +103,9 @@ async function callAnthropic(
     throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
   }
 
-  const data = (await res.json()) as { content: Array<{ type: string; text: string }> };
+  const data = (await res.json()) as {
+    content: Array<{ type: string; text: string }>;
+  };
   const text = data.content?.find((c) => c.type === 'text')?.text || query;
   return { keywords: stripThinkTags(text) };
 }
@@ -123,7 +139,9 @@ async function callOpenAI(
     throw new Error(`OpenAI API ${res.status}: ${await res.text()}`);
   }
 
-  const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+  const data = (await res.json()) as {
+    choices: Array<{ message: { content: string } }>;
+  };
   const text = data.choices?.[0]?.message?.content || query;
   return { keywords: stripThinkTags(text) };
 }

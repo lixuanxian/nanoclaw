@@ -23,7 +23,9 @@ function readAllConfig(): Record<string, unknown> {
     if (fs.existsSync(CONFIG_PATH)) {
       return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
     }
-  } catch { /* corrupted — start fresh */ }
+  } catch {
+    /* corrupted — start fresh */
+  }
   return {};
 }
 
@@ -35,7 +37,8 @@ function writeAllConfig(configs: Record<string, unknown>): void {
 function loadSkillsConfig(): Record<string, { enabled: boolean }> {
   const all = readAllConfig();
   const raw = all[SKILLS_CONFIG_KEY];
-  if (raw && typeof raw === 'object') return raw as Record<string, { enabled: boolean }>;
+  if (raw && typeof raw === 'object')
+    return raw as Record<string, { enabled: boolean }>;
   return {};
 }
 
@@ -62,8 +65,10 @@ function parseFrontmatter(content: string): SkillFrontmatter {
       const key = line.slice(0, idx).trim();
       let value = line.slice(idx + 1).trim();
       // Strip surrounding quotes
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
         value = value.slice(1, -1);
       }
       result[key] = value;
@@ -118,7 +123,9 @@ export function listAllSkills(): SkillInfo[] {
 
 // --- Skill content retrieval ---
 
-export function getSkillContents(ids: string[]): Array<{ name: string; content: string }> {
+export function getSkillContents(
+  ids: string[],
+): Array<{ name: string; content: string }> {
   const results: Array<{ name: string; content: string }> = [];
   for (const id of ids) {
     let skillMdPath: string;
@@ -139,11 +146,13 @@ export function getSkillContents(ids: string[]): Array<{ name: string; content: 
 // --- CRUD operations ---
 
 function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 50) || `skill-${Date.now()}`;
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 50) || `skill-${Date.now()}`
+  );
 }
 
 export function createCustomSkill(
@@ -216,7 +225,9 @@ function validateSkillUrl(raw: string): URL {
       (a === 169 && b === 254) || // link-local / cloud metadata
       a === 0
     ) {
-      throw new Error('Fetching from private/reserved IP ranges is not allowed');
+      throw new Error(
+        'Fetching from private/reserved IP ranges is not allowed',
+      );
     }
   }
   return parsed;
@@ -225,15 +236,22 @@ function validateSkillUrl(raw: string): URL {
 export async function installRemoteSkill(url: string): Promise<SkillInfo> {
   validateSkillUrl(url);
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
+  if (!res.ok)
+    throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
   const content = await res.text();
   if (content.length > MAX_SKILL_SIZE) {
-    throw new Error(`Skill content too large (${content.length} bytes, max ${MAX_SKILL_SIZE})`);
+    throw new Error(
+      `Skill content too large (${content.length} bytes, max ${MAX_SKILL_SIZE})`,
+    );
   }
 
   const fm = parseFrontmatter(content);
-  const name = fm.name || new URL(url).pathname.split('/').pop()?.replace('.md', '') || 'remote-skill';
-  const description = fm.description || `Installed from ${new URL(url).hostname}`;
+  const name =
+    fm.name ||
+    new URL(url).pathname.split('/').pop()?.replace('.md', '') ||
+    'remote-skill';
+  const description =
+    fm.description || `Installed from ${new URL(url).hostname}`;
 
   // Save as custom skill
   const slug = slugify(name);

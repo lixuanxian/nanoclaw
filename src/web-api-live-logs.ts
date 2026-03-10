@@ -36,7 +36,9 @@ export function registerLiveLogRoutes(app: Hono, queue: GroupQueue): void {
         const lines = data.toString().split('\n');
         for (const line of lines) {
           if (line) {
-            stream.writeSSE({ data: line, event: 'log', id: String(id++) }).catch(() => {});
+            stream
+              .writeSSE({ data: line, event: 'log', id: String(id++) })
+              .catch(() => {});
           }
         }
       };
@@ -46,7 +48,13 @@ export function registerLiveLogRoutes(app: Hono, queue: GroupQueue): void {
 
       proc.on('close', (code) => {
         logger.debug({ folder, containerName, code }, 'Live log stream ended');
-        stream.writeSSE({ data: String(code ?? 0), event: 'done', id: String(id++) }).catch(() => {});
+        stream
+          .writeSSE({
+            data: String(code ?? 0),
+            event: 'done',
+            id: String(id++),
+          })
+          .catch(() => {});
         stream.close();
       });
 

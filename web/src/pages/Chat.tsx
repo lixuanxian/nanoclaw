@@ -31,7 +31,13 @@ interface Props {
 }
 
 function generateSessionId() {
-  return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
 }
 
 const statusColors: Record<ConnectionStatus, string> = {
@@ -50,6 +56,8 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   const [sessionId, setSessionId] = useState<string>(
     () => localStorage.getItem('nanoclaw_session') || generateSessionId(),
   );
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
   const [activeJid, setActiveJid] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [olderCount, setOlderCount] = useState(0);
@@ -80,10 +88,15 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
         const sid = jid.includes('@') ? jid.split('@')[0] : jid;
         setActiveJid(jid);
         localStorage.setItem('nanoclaw_session', sid);
-        setSessionId(sid);
-        setMessages([]);
-        setOlderCount(0);
-        setIsTyping(false);
+        // Only clear messages when session actually changes —
+        // handleSelectSession already clears via updateSession(),
+        // and this effect may fire asynchronously after WS delivers history.
+        if (sid !== sessionIdRef.current) {
+          setSessionId(sid);
+          setMessages([]);
+          setOlderCount(0);
+          setIsTyping(false);
+        }
       } else {
         // No JID in URL — derive from current sessionId for list highlighting
         setActiveJid(`${sessionId}@web.nanoclaw`);

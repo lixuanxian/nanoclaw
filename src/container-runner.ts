@@ -27,11 +27,16 @@ import {
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
 import { validateAdditionalMounts } from './mount-security.js';
+import { getProviderSecretKeys } from './providers.js';
 import { RegisteredGroup } from './types.js';
 
 // Re-export for backwards compatibility
 export type { VolumeMount } from './container-mounts.js';
-export { writeTasksSnapshot, writeGroupsSnapshot } from './container-snapshots.js';
+export {
+  writeTasksSnapshot,
+  writeGroupsSnapshot,
+  writeChannelsSnapshot,
+} from './container-snapshots.js';
 export type { AvailableGroup } from './container-snapshots.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
@@ -46,6 +51,7 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  secrets?: Record<string, string>;
   provider?: string;
   model?: string;
   providerApiBase?: string;
@@ -300,7 +306,16 @@ export async function runContainerAgent(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    container.stdin.write(JSON.stringify(input));
+    // Inject provider API keys so the container agent-runner can authenticate
+    const secrets: Record<string, string> = {};
+    for (const key of getProviderSecretKeys()) {
+      if (process.env[key]) {
+        secrets[key] = process.env[key]!;
+      }
+    }
+    const inputWithSecrets = { ...input, secrets };
+
+    container.stdin.write(JSON.stringify(inputWithSecrets));
     container.stdin.end();
 
     // Streaming output: parse OUTPUT_START/END marker pairs as they arrive

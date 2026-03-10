@@ -106,9 +106,9 @@ function createSchema(database: Database.Database): void {
       `ALTER TABLE messages ADD COLUMN is_bot_message INTEGER DEFAULT 0`,
     );
     // Backfill: mark existing bot messages that used the content prefix pattern
-    database.prepare(
-      `UPDATE messages SET is_bot_message = 1 WHERE content LIKE ?`,
-    ).run(`${ASSISTANT_NAME}:%`);
+    database
+      .prepare(`UPDATE messages SET is_bot_message = 1 WHERE content LIKE ?`)
+      .run(`${ASSISTANT_NAME}:%`);
   } catch {
     /* column already exists */
   }
@@ -129,9 +129,11 @@ function createSchema(database: Database.Database): void {
   // Remove UNIQUE constraint on registered_groups.folder (allow cross-channel sync)
   // SQLite doesn't support DROP CONSTRAINT, so we recreate the table
   try {
-    const hasUnique = database.prepare(
-      `SELECT sql FROM sqlite_master WHERE type='table' AND name='registered_groups'`,
-    ).get() as { sql: string } | undefined;
+    const hasUnique = database
+      .prepare(
+        `SELECT sql FROM sqlite_master WHERE type='table' AND name='registered_groups'`,
+      )
+      .get() as { sql: string } | undefined;
     if (hasUnique?.sql?.includes('UNIQUE')) {
       database.exec(`
         CREATE TABLE registered_groups_new (
@@ -148,7 +150,9 @@ function createSchema(database: Database.Database): void {
         ALTER TABLE registered_groups_new RENAME TO registered_groups;
         CREATE INDEX IF NOT EXISTS idx_rg_folder ON registered_groups(folder);
       `);
-      logger.info('Migrated registered_groups: removed UNIQUE constraint on folder');
+      logger.info(
+        'Migrated registered_groups: removed UNIQUE constraint on folder',
+      );
     }
   } catch {
     /* already migrated or fresh DB */
@@ -156,17 +160,21 @@ function createSchema(database: Database.Database): void {
 
   // Add channel and is_group columns if they don't exist (migration for existing DBs)
   try {
-    database.exec(
-      `ALTER TABLE chats ADD COLUMN channel TEXT`,
-    );
-    database.exec(
-      `ALTER TABLE chats ADD COLUMN is_group INTEGER DEFAULT 0`,
-    );
+    database.exec(`ALTER TABLE chats ADD COLUMN channel TEXT`);
+    database.exec(`ALTER TABLE chats ADD COLUMN is_group INTEGER DEFAULT 0`);
     // Backfill from JID patterns
-    database.exec(`UPDATE chats SET channel = 'whatsapp', is_group = 1 WHERE jid LIKE '%@g.us'`);
-    database.exec(`UPDATE chats SET channel = 'whatsapp', is_group = 0 WHERE jid LIKE '%@s.whatsapp.net'`);
-    database.exec(`UPDATE chats SET channel = 'discord', is_group = 1 WHERE jid LIKE 'dc:%'`);
-    database.exec(`UPDATE chats SET channel = 'telegram', is_group = 1 WHERE jid LIKE 'tg:%'`);
+    database.exec(
+      `UPDATE chats SET channel = 'whatsapp', is_group = 1 WHERE jid LIKE '%@g.us'`,
+    );
+    database.exec(
+      `UPDATE chats SET channel = 'whatsapp', is_group = 0 WHERE jid LIKE '%@s.whatsapp.net'`,
+    );
+    database.exec(
+      `UPDATE chats SET channel = 'discord', is_group = 1 WHERE jid LIKE 'dc:%'`,
+    );
+    database.exec(
+      `UPDATE chats SET channel = 'telegram', is_group = 1 WHERE jid LIKE 'tg:%'`,
+    );
   } catch {
     /* columns already exist */
   }
@@ -206,9 +214,13 @@ function createSchema(database: Database.Database): void {
     `);
 
     // Backfill existing messages (only if FTS table is empty)
-    const ftsCount = database.prepare('SELECT COUNT(*) as cnt FROM messages_fts').get() as { cnt: number };
+    const ftsCount = database
+      .prepare('SELECT COUNT(*) as cnt FROM messages_fts')
+      .get() as { cnt: number };
     if (ftsCount.cnt === 0) {
-      const msgCount = database.prepare('SELECT COUNT(*) as cnt FROM messages').get() as { cnt: number };
+      const msgCount = database
+        .prepare('SELECT COUNT(*) as cnt FROM messages')
+        .get() as { cnt: number };
       if (msgCount.cnt > 0) {
         database.exec(`
           INSERT INTO messages_fts(rowid, content, sender_name)
@@ -266,7 +278,9 @@ export function rebuildFtsIndex(): void {
   `);
 
   // Backfill
-  const msgCount = database.prepare('SELECT COUNT(*) as cnt FROM messages').get() as { cnt: number };
+  const msgCount = database
+    .prepare('SELECT COUNT(*) as cnt FROM messages')
+    .get() as { cnt: number };
   if (msgCount.cnt > 0) {
     database.exec(`
       INSERT INTO messages_fts(rowid, content, sender_name)

@@ -1,8 +1,10 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 import { DWClient, DWClientDownStream, TOPIC_ROBOT } from 'dingtalk-stream';
 
-import { ASSISTANT_NAME, DEFAULT_SYNC_FOLDER } from '../config.js';
+import { ASSISTANT_NAME, DEFAULT_SYNC_FOLDER, STORE_DIR } from '../config.js';
 import { loadChannelConfig } from '../channel-config.js';
 import { logger } from '../logger.js';
 import {
@@ -15,6 +17,16 @@ import {
 
 const DINGTALK_JID_SUFFIX = '@dingtalk.nanoclaw';
 const MSG_LIMIT = 20000; // DingTalk text message character limit
+const WEBHOOKS_PATH = path.join(STORE_DIR, 'dingtalk-webhooks.json');
+
+/** Persisted per-conversation metadata for reliable sending. */
+interface ConversationMeta {
+  sessionWebhookUrl: string;
+  sessionWebhookExpiresAt: number;
+  isGroup: boolean;
+  /** User ID for DM conversations (needed for OpenAPI oToMessages). */
+  userId?: string;
+}
 
 export interface DingTalkChannelOpts {
   onMessage: OnInboundMessage;
@@ -47,7 +59,10 @@ export interface DingTalkRobotMessage {
  */
 export function computeSignature(secret: string, timestamp: string): string {
   const stringToSign = `${timestamp}\n${secret}`;
-  return crypto.createHmac('sha256', secret).update(stringToSign).digest('base64');
+  return crypto
+    .createHmac('sha256', secret)
+    .update(stringToSign)
+    .digest('base64');
 }
 
 export class DingTalkChannel implements Channel {
@@ -60,8 +75,10 @@ export class DingTalkChannel implements Channel {
   private webhookSecret = '';
   private clientId = '';
   private clientSecret = '';
-  /** Cache sessionWebhook per conversationId for replies. */
-  private sessionWebhooks = new Map<string, { url: string; expiresAt: number }>();
+  /** Actual robotCode from DingTalk (differs from clientId/AppKey). */
+  private robotCode = '';
+  /** Per-conversation metadata (sessionWebhook, isGroup, userId). Persisted to disk. */
+  private conversations = new Map<string, ConversationMeta>();
   /** Cached OpenAPI access token. */
   private accessToken: { token: string; expiresAt: number } | null = null;
 
@@ -85,10 +102,15 @@ export class DingTalkChannel implements Channel {
     this.webhookUrl = config.webhook_url || '';
     this.webhookSecret = config.secret || '';
 
+    // Load persisted conversation metadata (survives restarts)
+    this.loadConversations();
+
     // Ensure DingTalk API calls bypass HTTP proxy (avoids HTTPS→HTTP downgrade)
     const noProxy = process.env.NO_PROXY || process.env.no_proxy || '';
     if (!noProxy.includes('dingtalk.com')) {
-      process.env.NO_PROXY = noProxy ? `${noProxy},api.dingtalk.com,oapi.dingtalk.com` : 'api.dingtalk.com,oapi.dingtalk.com';
+      process.env.NO_PROXY = noProxy
+        ? `${noProxy},api.dingtalk.com,oapi.dingtalk.com`
+        : 'api.dingtalk.com,oapi.dingtalk.com';
     }
 
     this.client = new DWClient({
@@ -96,29 +118,39 @@ export class DingTalkChannel implements Channel {
       clientSecret: config.client_secret,
     });
 
-    this.client.registerCallbackListener(TOPIC_ROBOT, (msg: DWClientDownStream) => {
-      try {
-        const data: DingTalkRobotMessage = JSON.parse(msg.data);
-        this.handleRobotMessage(data);
-      } catch (err) {
-        logger.error({ err }, 'Failed to process DingTalk robot message');
-      }
-      // Acknowledge to prevent retries
-      this.client!.socketCallBackResponse(msg.headers.messageId, { response: '' });
-    });
+    this.client.registerCallbackListener(
+      TOPIC_ROBOT,
+      (msg: DWClientDownStream) => {
+        try {
+          const data: DingTalkRobotMessage = JSON.parse(msg.data);
+          this.handleRobotMessage(data);
+        } catch (err) {
+          logger.error({ err }, 'Failed to process DingTalk robot message');
+        }
+        // Acknowledge to prevent retries
+        this.client!.socketCallBackResponse(msg.headers.messageId, {
+          response: '',
+        });
+      },
+    );
 
     try {
       await this.client.connect();
     } catch (err: unknown) {
       // Extract DingTalk API response for better error messages
-      const axiosErr = err as { response?: { status?: number; data?: unknown } };
+      const axiosErr = err as {
+        response?: { status?: number; data?: unknown };
+      };
       const status = axiosErr.response?.status;
       const data = axiosErr.response?.data;
       if (status === 400) {
-        const detail = typeof data === 'object' && data ? JSON.stringify(data) : String(data || '');
+        const detail =
+          typeof data === 'object' && data
+            ? JSON.stringify(data)
+            : String(data || '');
         throw new Error(
           `DingTalk connection failed (400). Check that Client ID / Client Secret are correct ` +
-          `and the app has Stream mode enabled in the DingTalk Developer Portal. ${detail}`,
+            `and the app has Stream mode enabled in the DingTalk Developer Portal. ${detail}`,
         );
       }
       throw err;
@@ -135,7 +167,11 @@ export class DingTalkChannel implements Channel {
     return jid.endsWith(DINGTALK_JID_SUFFIX);
   }
 
-  async sendMessage(jid: string, text: string, options?: SendMessageOptions): Promise<void> {
+  async sendMessage(
+    jid: string,
+    text: string,
+    options?: SendMessageOptions,
+  ): Promise<void> {
     const conversationId = jid.replace(DINGTALK_JID_SUFFIX, '');
     const chunks = splitMessage(text, MSG_LIMIT);
 
@@ -166,7 +202,7 @@ export class DingTalkChannel implements Channel {
 
   async disconnect(): Promise<void> {
     this.connected = false;
-    this.sessionWebhooks.clear();
+    this.conversations.clear();
     if (this.client) {
       this.client.disconnect();
       this.client = null;
@@ -178,21 +214,36 @@ export class DingTalkChannel implements Channel {
 
   private handleRobotMessage(data: DingTalkRobotMessage): void {
     if (!data.conversationId || !data.text?.content) {
-      logger.debug({ data }, 'DingTalk message missing required fields, skipping');
+      logger.debug(
+        { data },
+        'DingTalk message missing required fields, skipping',
+      );
       return;
     }
 
     const conversationId = data.conversationId;
     const jid = `${conversationId}${DINGTALK_JID_SUFFIX}`;
     const isGroup = data.conversationType === '2';
+    const senderId = data.senderStaffId || data.senderId || 'unknown';
 
-    // Cache sessionWebhook for replies
-    if (data.sessionWebhook) {
-      this.sessionWebhooks.set(conversationId, {
-        url: data.sessionWebhook,
-        expiresAt: data.sessionWebhookExpiredTime || (Date.now() + 3600000),
-      });
+    // Capture robotCode from incoming message (differs from clientId/AppKey)
+    if (data.robotCode && !this.robotCode) {
+      this.robotCode = data.robotCode;
+      logger.info({ robotCode: data.robotCode }, 'DingTalk robotCode captured');
     }
+
+    // Update conversation metadata (sessionWebhook, isGroup, userId) and persist
+    const existing = this.conversations.get(conversationId);
+    const meta: ConversationMeta = {
+      sessionWebhookUrl: data.sessionWebhook || existing?.sessionWebhookUrl || '',
+      sessionWebhookExpiresAt: data.sessionWebhook
+        ? (data.sessionWebhookExpiredTime || Date.now() + 3600000)
+        : (existing?.sessionWebhookExpiresAt || 0),
+      isGroup,
+      userId: !isGroup ? senderId : existing?.userId,
+    };
+    this.conversations.set(conversationId, meta);
+    this.saveConversations();
 
     this.ensureRegistered(jid, conversationId, isGroup, data.conversationTitle);
 
@@ -200,11 +251,12 @@ export class DingTalkChannel implements Channel {
     if (!content) return;
 
     const now = new Date(data.createAt || Date.now()).toISOString();
-    const senderId = data.senderStaffId || data.senderId || 'unknown';
     const senderName = data.senderNick || senderId;
 
     this.opts.onMessage(jid, {
-      id: data.msgId || `dt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id:
+        data.msgId ||
+        `dt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       chat_jid: jid,
       sender: senderId,
       sender_name: senderName,
@@ -217,14 +269,18 @@ export class DingTalkChannel implements Channel {
 
   /** Send message using sessionWebhook (preferred) → static webhook → OpenAPI (fallback). */
   private async send(conversationId: string, text: string): Promise<void> {
+    const meta = this.conversations.get(conversationId);
+
     // Try sessionWebhook first (no signing needed, per-conversation)
-    const cached = this.sessionWebhooks.get(conversationId);
-    if (cached && cached.expiresAt > Date.now()) {
+    if (meta?.sessionWebhookUrl && meta.sessionWebhookExpiresAt > Date.now()) {
       try {
-        await this.postWebhook(cached.url, text, false);
+        await this.postWebhook(meta.sessionWebhookUrl, text, false);
         return;
       } catch (err) {
-        logger.warn({ err, conversationId }, 'sessionWebhook failed, trying fallback');
+        logger.warn(
+          { err, conversationId },
+          'sessionWebhook failed, trying fallback',
+        );
       }
     }
 
@@ -235,11 +291,16 @@ export class DingTalkChannel implements Channel {
     }
 
     // Final fallback: OpenAPI with access token
+    const isGroup = meta?.isGroup ?? true;
     logger.warn(
-      { conversationId },
-      'No webhook configured for DingTalk, falling back to OpenAPI',
+      { conversationId, isGroup },
+      'No webhook available for DingTalk, falling back to OpenAPI',
     );
-    await this.sendViaOpenApi(conversationId, text);
+    if (isGroup) {
+      await this.sendViaOpenApi(conversationId, text);
+    } else {
+      await this.sendDmViaOpenApi(meta?.userId || '', text);
+    }
   }
 
   /** Get or refresh an OpenAPI access token using client credentials. */
@@ -248,18 +309,29 @@ export class DingTalkChannel implements Channel {
       return this.accessToken.token;
     }
 
-    const resp = await fetch('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ appKey: this.clientId, appSecret: this.clientSecret }),
-    });
+    const resp = await fetch(
+      'https://api.dingtalk.com/v1.0/oauth2/accessToken',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appKey: this.clientId,
+          appSecret: this.clientSecret,
+        }),
+      },
+    );
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
-      throw new Error(`DingTalk accessToken request failed (${resp.status}): ${body}`);
+      throw new Error(
+        `DingTalk accessToken request failed (${resp.status}): ${body}`,
+      );
     }
 
-    const result = (await resp.json()) as { accessToken?: string; expireIn?: number };
+    const result = (await resp.json()) as {
+      accessToken?: string;
+      expireIn?: number;
+    };
     if (!result.accessToken) {
       throw new Error('DingTalk accessToken response missing token');
     }
@@ -273,22 +345,29 @@ export class DingTalkChannel implements Channel {
   }
 
   /** Send a message via DingTalk OpenAPI (robot group message). */
-  private async sendViaOpenApi(conversationId: string, text: string): Promise<void> {
+  private async sendViaOpenApi(
+    conversationId: string,
+    text: string,
+  ): Promise<void> {
+    const robotCode = this.getRobotCode();
     const token = await this.getAccessToken();
 
-    const resp = await fetch('https://api.dingtalk.com/v1.0/robot/groupMessages/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-acs-dingtalk-access-token': token,
+    const resp = await fetch(
+      'https://api.dingtalk.com/v1.0/robot/groupMessages/send',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acs-dingtalk-access-token': token,
+        },
+        body: JSON.stringify({
+          robotCode,
+          openConversationId: conversationId,
+          msgKey: 'sampleText',
+          msgParam: JSON.stringify({ content: text }),
+        }),
       },
-      body: JSON.stringify({
-        robotCode: this.clientId,
-        openConversationId: conversationId,
-        msgKey: 'sampleText',
-        msgParam: JSON.stringify({ content: text }),
-      }),
-    });
+    );
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
@@ -296,11 +375,58 @@ export class DingTalkChannel implements Channel {
     }
 
     const result = (await resp.json()) as { processQueryKey?: string };
-    logger.debug({ conversationId, processQueryKey: result.processQueryKey }, 'Sent via DingTalk OpenAPI');
+    logger.debug(
+      { conversationId, robotCode, processQueryKey: result.processQueryKey },
+      'Sent via DingTalk OpenAPI',
+    );
+  }
+
+  /** Send a DM via DingTalk OpenAPI (robot 1:1 message). */
+  private async sendDmViaOpenApi(userId: string, text: string): Promise<void> {
+    if (!userId) {
+      throw new Error(
+        'DingTalk DM send failed: no userId available. Send a message first so the bot learns your userId.',
+      );
+    }
+
+    const robotCode = this.getRobotCode();
+    const token = await this.getAccessToken();
+
+    const resp = await fetch(
+      'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acs-dingtalk-access-token': token,
+        },
+        body: JSON.stringify({
+          robotCode,
+          userIds: [userId],
+          msgKey: 'sampleText',
+          msgParam: JSON.stringify({ content: text }),
+        }),
+      },
+    );
+
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(`DingTalk OpenAPI DM send failed (${resp.status}): ${body}`);
+    }
+
+    const result = (await resp.json()) as { processQueryKey?: string };
+    logger.debug(
+      { userId, robotCode, processQueryKey: result.processQueryKey },
+      'Sent DM via DingTalk OpenAPI',
+    );
   }
 
   /** POST a text message to a DingTalk webhook URL. */
-  private async postWebhook(baseUrl: string, text: string, sign: boolean): Promise<void> {
+  private async postWebhook(
+    baseUrl: string,
+    text: string,
+    sign: boolean,
+  ): Promise<void> {
     let url = baseUrl;
     if (sign && this.webhookSecret) {
       const timestamp = String(Date.now());
@@ -322,7 +448,56 @@ export class DingTalkChannel implements Channel {
 
     const result = (await resp.json()) as { errcode?: number; errmsg?: string };
     if (result.errcode && result.errcode !== 0) {
-      throw new Error(`DingTalk API error: ${result.errmsg} (${result.errcode})`);
+      throw new Error(
+        `DingTalk API error: ${result.errmsg} (${result.errcode})`,
+      );
+    }
+  }
+
+  /** Get the robotCode for OpenAPI calls. Prefers captured robotCode, falls back to clientId. */
+  private getRobotCode(): string {
+    return this.robotCode || this.clientId;
+  }
+
+  /** Load persisted conversation metadata from disk. */
+  private loadConversations(): void {
+    try {
+      if (fs.existsSync(WEBHOOKS_PATH)) {
+        const data = JSON.parse(fs.readFileSync(WEBHOOKS_PATH, 'utf-8'));
+        if (data && typeof data === 'object') {
+          // Restore robotCode
+          if (data._robotCode) {
+            this.robotCode = data._robotCode;
+          }
+          for (const [id, meta] of Object.entries(data)) {
+            if (id.startsWith('_')) continue; // Skip metadata keys
+            this.conversations.set(id, meta as ConversationMeta);
+          }
+          logger.debug(
+            { count: this.conversations.size, robotCode: this.robotCode || '(not yet captured)' },
+            'Loaded persisted DingTalk conversation metadata',
+          );
+        }
+      }
+    } catch {
+      logger.warn('Failed to load DingTalk conversation metadata, starting fresh');
+    }
+  }
+
+  /** Persist conversation metadata to disk. */
+  private saveConversations(): void {
+    try {
+      const obj: Record<string, ConversationMeta | string> = {};
+      if (this.robotCode) {
+        obj._robotCode = this.robotCode;
+      }
+      for (const [id, meta] of this.conversations) {
+        obj[id] = meta;
+      }
+      fs.mkdirSync(path.dirname(WEBHOOKS_PATH), { recursive: true });
+      fs.writeFileSync(WEBHOOKS_PATH, JSON.stringify(obj, null, 2) + '\n');
+    } catch (err) {
+      logger.warn({ err }, 'Failed to persist DingTalk conversation metadata');
     }
   }
 
@@ -346,7 +521,13 @@ export class DingTalkChannel implements Channel {
       requiresTrigger: isGroup,
     });
 
-    this.opts.onChatMetadata(jid, new Date().toISOString(), name, 'dingtalk', isGroup);
+    this.opts.onChatMetadata(
+      jid,
+      new Date().toISOString(),
+      name,
+      'dingtalk',
+      isGroup,
+    );
   }
 }
 

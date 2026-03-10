@@ -19,8 +19,9 @@ export function storeChatMetadata(
 
   if (name) {
     // Update with name, preserving existing timestamp if newer
-    getDb().prepare(
-      `
+    getDb()
+      .prepare(
+        `
       INSERT INTO chats (jid, name, last_message_time, channel, is_group) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(jid) DO UPDATE SET
         name = excluded.name,
@@ -28,18 +29,21 @@ export function storeChatMetadata(
         channel = COALESCE(excluded.channel, channel),
         is_group = COALESCE(excluded.is_group, is_group)
     `,
-    ).run(chatJid, name, timestamp, ch, group);
+      )
+      .run(chatJid, name, timestamp, ch, group);
   } else {
     // Update timestamp only, preserve existing name if any
-    getDb().prepare(
-      `
+    getDb()
+      .prepare(
+        `
       INSERT INTO chats (jid, name, last_message_time, channel, is_group) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(jid) DO UPDATE SET
         last_message_time = MAX(last_message_time, excluded.last_message_time),
         channel = COALESCE(excluded.channel, channel),
         is_group = COALESCE(excluded.is_group, is_group)
     `,
-    ).run(chatJid, chatJid, timestamp, ch, group);
+      )
+      .run(chatJid, chatJid, timestamp, ch, group);
   }
 }
 
@@ -49,12 +53,14 @@ export function storeChatMetadata(
  * Used during group metadata sync.
  */
 export function updateChatName(chatJid: string, name: string): void {
-  getDb().prepare(
-    `
+  getDb()
+    .prepare(
+      `
     INSERT INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)
     ON CONFLICT(jid) DO UPDATE SET name = excluded.name
   `,
-  ).run(chatJid, name, new Date().toISOString());
+    )
+    .run(chatJid, name, new Date().toISOString());
 }
 
 export interface ChatInfo {
@@ -96,9 +102,11 @@ export function getLastGroupSync(): string | null {
  */
 export function setLastGroupSync(): void {
   const now = new Date().toISOString();
-  getDb().prepare(
-    `INSERT OR REPLACE INTO chats (jid, name, last_message_time) VALUES ('__group_sync__', '__group_sync__', ?)`,
-  ).run(now);
+  getDb()
+    .prepare(
+      `INSERT OR REPLACE INTO chats (jid, name, last_message_time) VALUES ('__group_sync__', '__group_sync__', ?)`,
+    )
+    .run(now);
 }
 
 // --- Router state accessors ---
@@ -111,9 +119,9 @@ export function getRouterState(key: string): string | undefined {
 }
 
 export function setRouterState(key: string, value: string): void {
-  getDb().prepare(
-    'INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)',
-  ).run(key, value);
+  getDb()
+    .prepare('INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)')
+    .run(key, value);
 }
 
 // --- Session accessors ---
@@ -126,9 +134,11 @@ export function getSession(groupFolder: string): string | undefined {
 }
 
 export function setSession(groupFolder: string, sessionId: string): void {
-  getDb().prepare(
-    'INSERT OR REPLACE INTO sessions (group_folder, session_id) VALUES (?, ?)',
-  ).run(groupFolder, sessionId);
+  getDb()
+    .prepare(
+      'INSERT OR REPLACE INTO sessions (group_folder, session_id) VALUES (?, ?)',
+    )
+    .run(groupFolder, sessionId);
 }
 
 export function getAllSessions(): Record<string, string> {
@@ -158,6 +168,7 @@ export function getRegisteredGroup(
         added_at: string;
         container_config: string | null;
         requires_trigger: number | null;
+        is_main: number | null;
       }
     | undefined;
   if (!row) return undefined;
@@ -177,30 +188,31 @@ export function getRegisteredGroup(
     containerConfig: row.container_config
       ? JSON.parse(row.container_config)
       : undefined,
-    requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+    requiresTrigger:
+      row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+    isMain: row.is_main === 1 ? true : undefined,
   };
 }
 
-export function setRegisteredGroup(
-  jid: string,
-  group: RegisteredGroup,
-): void {
+export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   if (!isValidGroupFolder(group.folder)) {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
-  getDb().prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
+  getDb()
+    .prepare(
+      `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    jid,
-    group.name,
-    group.folder,
-    group.trigger,
-    group.added_at,
-    group.containerConfig ? JSON.stringify(group.containerConfig) : null,
-    group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
-    group.isMain ? 1 : 0,
-  );
+    )
+    .run(
+      jid,
+      group.name,
+      group.folder,
+      group.trigger,
+      group.added_at,
+      group.containerConfig ? JSON.stringify(group.containerConfig) : null,
+      group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
+      group.isMain ? 1 : 0,
+    );
 }
 
 export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
@@ -233,7 +245,8 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       containerConfig: row.container_config
         ? JSON.parse(row.container_config)
         : undefined,
-      requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+      requiresTrigger:
+        row.requires_trigger === null ? undefined : row.requires_trigger === 1,
       isMain: row.is_main === 1 ? true : undefined,
     };
   }
@@ -242,9 +255,9 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
 
 /** Get all JIDs that share a given folder (for cross-channel sync). */
 export function getJidsByFolder(folder: string): string[] {
-  const rows = getDb().prepare(
-    'SELECT jid FROM registered_groups WHERE folder = ?',
-  ).all(folder) as Array<{ jid: string }>;
+  const rows = getDb()
+    .prepare('SELECT jid FROM registered_groups WHERE folder = ?')
+    .all(folder) as Array<{ jid: string }>;
   return rows.map((r) => r.jid);
 }
 
@@ -261,7 +274,9 @@ export interface WebSessionInfo {
  *  For synced folders (shared by multiple channels), shows the latest message
  *  across all JIDs in the folder. */
 export function getWebSessions(): WebSessionInfo[] {
-  const rows = getDb().prepare(`
+  const rows = getDb()
+    .prepare(
+      `
     SELECT rg.jid, rg.name, rg.folder, rg.added_at,
       c.last_message_time,
       (SELECT content FROM messages m
@@ -272,7 +287,9 @@ export function getWebSessions(): WebSessionInfo[] {
     LEFT JOIN chats c ON c.jid = rg.jid
     WHERE rg.jid LIKE '%@web.nanoclaw'
     ORDER BY COALESCE(c.last_message_time, rg.added_at) DESC
-  `).all() as Array<{
+  `,
+    )
+    .all() as Array<{
     jid: string;
     name: string;
     folder: string;
@@ -281,7 +298,7 @@ export function getWebSessions(): WebSessionInfo[] {
     last_content: string | null;
   }>;
 
-  return rows.map(r => {
+  return rows.map((r) => {
     const sessionId = r.jid.replace('@web.nanoclaw', '');
     let preview = r.last_content;
     if (preview && preview.length > 80) preview = preview.slice(0, 80) + '...';
@@ -314,13 +331,16 @@ function channelFromJid(jid: string): string {
   if (jid.includes('@web.')) return 'web';
   if (jid.includes('@slack.')) return 'slack';
   if (jid.includes('@dingtalk.')) return 'dingtalk';
-  if (jid.includes('@g.us') || jid.includes('@s.whatsapp.net')) return 'whatsapp';
+  if (jid.includes('@g.us') || jid.includes('@s.whatsapp.net'))
+    return 'whatsapp';
   return 'unknown';
 }
 
 /** List all conversations across all channels. */
 export function getAllConversations(): ConversationInfo[] {
-  const rows = getDb().prepare(`
+  const rows = getDb()
+    .prepare(
+      `
     SELECT rg.jid, rg.name, rg.folder, rg.added_at,
       c.last_message_time,
       (SELECT content FROM messages m
@@ -330,7 +350,9 @@ export function getAllConversations(): ConversationInfo[] {
     FROM registered_groups rg
     LEFT JOIN chats c ON c.jid = rg.jid
     ORDER BY COALESCE(c.last_message_time, rg.added_at) DESC
-  `).all() as Array<{
+  `,
+    )
+    .all() as Array<{
     jid: string;
     name: string;
     folder: string;
@@ -339,7 +361,7 @@ export function getAllConversations(): ConversationInfo[] {
     last_content: string | null;
   }>;
 
-  return rows.map(r => {
+  return rows.map((r) => {
     let preview = r.last_content;
     if (preview && preview.length > 80) preview = preview.slice(0, 80) + '...';
     return {
@@ -356,37 +378,50 @@ export function getAllConversations(): ConversationInfo[] {
 
 /** Get the last-read timestamp for a JID. */
 export function getLastRead(jid: string): string | null {
-  const row = getDb().prepare('SELECT last_read_timestamp FROM read_positions WHERE jid = ?').get(jid) as { last_read_timestamp: string } | undefined;
+  const row = getDb()
+    .prepare('SELECT last_read_timestamp FROM read_positions WHERE jid = ?')
+    .get(jid) as { last_read_timestamp: string } | undefined;
   return row?.last_read_timestamp ?? null;
 }
 
 /** Set the last-read timestamp for a JID. */
 export function setLastRead(jid: string, timestamp: string): void {
-  getDb().prepare(
-    'INSERT OR REPLACE INTO read_positions (jid, last_read_timestamp) VALUES (?, ?)',
-  ).run(jid, timestamp);
+  getDb()
+    .prepare(
+      'INSERT OR REPLACE INTO read_positions (jid, last_read_timestamp) VALUES (?, ?)',
+    )
+    .run(jid, timestamp);
 }
 
 /** Count unread messages for a JID (or folder-aggregated JIDs) since a given timestamp. */
-export function countUnreadForJids(jids: string[], sinceTimestamp: string | null): number {
+export function countUnreadForJids(
+  jids: string[],
+  sinceTimestamp: string | null,
+): number {
   if (jids.length === 0) return 0;
   if (!sinceTimestamp) {
     // Never read — all messages are unread
     const placeholders = jids.map(() => '?').join(',');
-    const row = getDb().prepare(
-      `SELECT COUNT(*) as cnt FROM messages WHERE chat_jid IN (${placeholders})`,
-    ).get(...jids) as { cnt: number };
+    const row = getDb()
+      .prepare(
+        `SELECT COUNT(*) as cnt FROM messages WHERE chat_jid IN (${placeholders})`,
+      )
+      .get(...jids) as { cnt: number };
     return row.cnt;
   }
   const placeholders = jids.map(() => '?').join(',');
-  const row = getDb().prepare(
-    `SELECT COUNT(*) as cnt FROM messages WHERE chat_jid IN (${placeholders}) AND timestamp > ?`,
-  ).get(...jids, sinceTimestamp) as { cnt: number };
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) as cnt FROM messages WHERE chat_jid IN (${placeholders}) AND timestamp > ?`,
+    )
+    .get(...jids, sinceTimestamp) as { cnt: number };
   return row.cnt;
 }
 
 /** Get all conversations with unread counts (folder-aware). */
-export function getAllConversationsWithUnread(): (ConversationInfo & { unreadCount: number })[] {
+export function getAllConversationsWithUnread(): (ConversationInfo & {
+  unreadCount: number;
+})[] {
   const conversations = getAllConversations();
   const groups = getAllRegisteredGroups();
 
@@ -417,7 +452,9 @@ export function getAllConversationsWithUnread(): (ConversationInfo & { unreadCou
 
 /** Delete all data for a conversation (any channel). */
 export function deleteConversation(jid: string): void {
-  const row = getDb().prepare('SELECT folder FROM registered_groups WHERE jid = ?').get(jid) as { folder: string } | undefined;
+  const row = getDb()
+    .prepare('SELECT folder FROM registered_groups WHERE jid = ?')
+    .get(jid) as { folder: string } | undefined;
   const folder = row?.folder;
 
   try {
@@ -425,7 +462,10 @@ export function deleteConversation(jid: string): void {
   } catch (err: unknown) {
     const code = (err as { code?: string }).code;
     if (code === 'SQLITE_CORRUPT_VTAB' || code === 'SQLITE_CORRUPT') {
-      logger.warn({ jid, code }, 'FTS index corrupted, rebuilding and retrying delete');
+      logger.warn(
+        { jid, code },
+        'FTS index corrupted, rebuilding and retrying delete',
+      );
       rebuildFtsIndex();
       getDb().prepare('DELETE FROM messages WHERE chat_jid = ?').run(jid);
     } else {
@@ -439,7 +479,9 @@ export function deleteConversation(jid: string): void {
   if (folder) {
     const remainingJids = getJidsByFolder(folder);
     if (remainingJids.length === 0) {
-      getDb().prepare('DELETE FROM sessions WHERE group_folder = ?').run(folder);
+      getDb()
+        .prepare('DELETE FROM sessions WHERE group_folder = ?')
+        .run(folder);
     }
   }
 }

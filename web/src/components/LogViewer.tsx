@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Drawer, Typography, Spin, Empty, Button, List, Popconfirm, Segmented, Badge, message } from 'antd';
+import { Modal, Typography, Spin, Empty, Button, List, Popconfirm, Segmented, Badge, message } from 'antd';
 import { ArrowLeftOutlined, FileTextOutlined, DeleteOutlined, ClearOutlined } from '@ant-design/icons';
-import { getLogs, getLogContent, deleteLog, cleanupLogs } from '../api';
+import { getLogs, getLogContent, deleteLog, cleanupLogs, getContainerStatus } from '../api';
 import type { LogFileInfo } from '../api';
 import { useLiveLogs } from '../hooks/useLiveLogs';
 import { useT } from '../i18n';
@@ -36,7 +36,17 @@ const preStyle: React.CSSProperties = {
 
 export function LogViewer({ folder, open, onClose }: Props) {
   const { t } = useT();
-  const [tab, setTab] = useState<Tab>('live');
+  const [tab, setTab] = useState<Tab>('history');
+  const [containerRunning, setContainerRunning] = useState(false);
+
+  // --- Check container status ---
+  useEffect(() => {
+    if (!open || !folder) { setContainerRunning(false); return; }
+    getContainerStatus(folder).then((s) => {
+      setContainerRunning(s.running);
+      if (!s.running && tab === 'live') setTab('history');
+    }).catch(() => setContainerRunning(false));
+  }, [open, folder]);
 
   // --- Live tab state ---
   const { lines, connected, done, clear } = useLiveLogs({ folder, enabled: open && tab === 'live' });
@@ -112,6 +122,11 @@ export function LogViewer({ folder, open, onClose }: Props) {
       loadLogs();
     } catch { /* ignore */ }
   };
+
+  // Update containerRunning when live connection is established
+  useEffect(() => {
+    if (connected) setContainerRunning(true);
+  }, [connected]);
 
   // --- Live status badge ---
   const statusColor = connected ? '#4ade80' : done ? '#999' : '#f59e0b';
@@ -211,7 +226,7 @@ export function LogViewer({ folder, open, onClose }: Props) {
     : undefined;
 
   return (
-    <Drawer
+    <Modal
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span>{t('log.title')}</span>
@@ -221,29 +236,32 @@ export function LogViewer({ folder, open, onClose }: Props) {
               <span style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>{statusText}</span>
             </>
           )}
+          {extra}
         </div>
       }
-      placement="bottom"
-      size="large"
+      width="80vw"
+      styles={{ body: { height: '65vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' } }}
       open={open}
-      onClose={onClose}
-      extra={extra}
-      destroyOnClose
+      onCancel={onClose}
+      footer={null}
+      destroyOnHidden
     >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12 }}>
-        <Segmented
-          size="small"
-          value={tab}
-          onChange={(val) => setTab(val as Tab)}
-          options={[
-            { label: t('livelog.title'), value: 'live' },
-            { label: t('log.history'), value: 'history' },
-          ]}
-        />
+        {containerRunning ? (
+          <Segmented
+            size="small"
+            value={tab}
+            onChange={(val) => setTab(val as Tab)}
+            options={[
+              { label: t('livelog.title'), value: 'live' },
+              { label: t('log.history'), value: 'history' },
+            ]}
+          />
+        ) : null}
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {tab === 'live' ? renderLiveTab() : renderHistoryTab()}
         </div>
       </div>
-    </Drawer>
+    </Modal>
   );
 }

@@ -14,24 +14,61 @@ import { logger } from './logger.js';
 
 const MAX_READ_SIZE = 2 * 1024 * 1024; // 2 MB
 const EDITABLE_EXTS = new Set([
-  '.md', '.txt', '.json', '.yaml', '.yml', '.toml', '.csv', '.log',
-  '.sh', '.py', '.js', '.ts', '.html', '.css', '.env', '.conf',
+  '.md',
+  '.txt',
+  '.json',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.csv',
+  '.log',
+  '.sh',
+  '.py',
+  '.js',
+  '.ts',
+  '.html',
+  '.css',
+  '.env',
+  '.conf',
 ]);
 const PROTECTED_FOLDERS = new Set(['global', 'main']);
 
 const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css',
-  '.js': 'application/javascript', '.json': 'application/json',
-  '.txt': 'text/plain', '.md': 'text/markdown', '.csv': 'text/csv',
-  '.xml': 'application/xml', '.yaml': 'text/yaml', '.yml': 'text/yaml',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.css': 'text/css',
+  '.js': 'application/javascript',
+  '.json': 'application/json',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.csv': 'text/csv',
+  '.xml': 'application/xml',
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
   '.pdf': 'application/pdf',
-  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.flac': 'audio/flac',
-  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
-  '.zip': 'application/zip', '.gz': 'application/gzip', '.tar': 'application/x-tar',
-  '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.flac': 'audio/flac',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.zip': 'application/zip',
+  '.gz': 'application/gzip',
+  '.tar': 'application/x-tar',
+  '.doc': 'application/msword',
+  '.docx':
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 export interface FolderConversation {
@@ -68,10 +105,12 @@ const FOLDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /** Resolve a group folder path for workspace browsing. Allows protected folders (global, main). */
 function resolveWorkspaceFolderPath(folder: string): string {
-  if (!folder || !FOLDER_PATTERN.test(folder)) throw new Error('Invalid folder name');
+  if (!folder || !FOLDER_PATTERN.test(folder))
+    throw new Error('Invalid folder name');
   const resolved = path.resolve(GROUPS_DIR, folder);
   const rel = path.relative(GROUPS_DIR, resolved);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('Path escapes base');
+  if (rel.startsWith('..') || path.isAbsolute(rel))
+    throw new Error('Path escapes base');
   return resolved;
 }
 
@@ -81,16 +120,19 @@ export function registerFileRoutes(app: Hono): void {
   app.get('/api/workspace/folders', (c) => {
     if (!fs.existsSync(GROUPS_DIR)) return c.json({ folders: [] });
 
-    const entries = fs.readdirSync(GROUPS_DIR, { withFileTypes: true })
+    const entries = fs
+      .readdirSync(GROUPS_DIR, { withFileTypes: true })
       .filter((e) => e.isDirectory() && !e.name.startsWith('.'));
 
     const folders: FolderInfo[] = entries.map((e) => {
       const jids = getJidsByFolder(e.name);
       let conversations: FolderConversation[] = [];
       if (jids.length > 0) {
-        const rows = getDb().prepare(
-          `SELECT rg.jid, rg.name FROM registered_groups rg WHERE rg.folder = ?`,
-        ).all(e.name) as Array<{ jid: string; name: string }>;
+        const rows = getDb()
+          .prepare(
+            `SELECT rg.jid, rg.name FROM registered_groups rg WHERE rg.folder = ?`,
+          )
+          .all(e.name) as Array<{ jid: string; name: string }>;
         conversations = rows.map((r) => ({
           jid: r.jid,
           name: r.name,
@@ -109,7 +151,8 @@ export function registerFileRoutes(app: Hono): void {
     folders.sort((a, b) => a.folder.localeCompare(b.folder));
 
     // Also include root-level files (not inside any group folder)
-    const rootFileEntries = fs.readdirSync(GROUPS_DIR, { withFileTypes: true })
+    const rootFileEntries = fs
+      .readdirSync(GROUPS_DIR, { withFileTypes: true })
       .filter((e) => e.isFile() && !e.name.startsWith('.'));
     const rootFiles: FileEntry[] = rootFileEntries.map((e) => {
       const filePath = path.join(GROUPS_DIR, e.name);
@@ -144,7 +187,8 @@ export function registerFileRoutes(app: Hono): void {
 
     const targetDir = subpath ? path.join(groupPath, subpath) : groupPath;
     const resolved = path.resolve(targetDir);
-    if (!resolved.startsWith(groupPath)) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!resolved.startsWith(groupPath))
+      return c.json({ error: 'Path outside workspace' }, 400);
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
       return c.json({ error: 'Directory not found' }, 404);
     }
@@ -189,7 +233,8 @@ export function registerFileRoutes(app: Hono): void {
     }
 
     const filePath = path.resolve(groupPath, subpath);
-    if (!filePath.startsWith(groupPath)) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!filePath.startsWith(groupPath))
+      return c.json({ error: 'Path outside workspace' }, 400);
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       return c.json({ error: 'File not found' }, 404);
     }
@@ -201,7 +246,11 @@ export function registerFileRoutes(app: Hono): void {
 
     const ext = path.extname(filePath).toLowerCase();
     const content = fs.readFileSync(filePath, 'utf-8');
-    return c.json({ content, editable: EDITABLE_EXTS.has(ext), size: stat.size });
+    return c.json({
+      content,
+      editable: EDITABLE_EXTS.has(ext),
+      size: stat.size,
+    });
   });
 
   // Write/edit file content
@@ -220,10 +269,12 @@ export function registerFileRoutes(app: Hono): void {
     }
 
     const filePath = path.resolve(groupPath, subpath);
-    if (!filePath.startsWith(groupPath)) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!filePath.startsWith(groupPath))
+      return c.json({ error: 'Path outside workspace' }, 400);
 
     const ext = path.extname(filePath).toLowerCase();
-    if (!EDITABLE_EXTS.has(ext)) return c.json({ error: 'File type not editable' }, 400);
+    if (!EDITABLE_EXTS.has(ext))
+      return c.json({ error: 'File type not editable' }, 400);
 
     const body = await c.req.json<{ content: string }>();
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -258,7 +309,10 @@ export function registerFileRoutes(app: Hono): void {
     if (!fs.existsSync(targetPath)) return c.json({ error: 'Not found' }, 404);
 
     fs.rmSync(targetPath, { recursive: true, force: true });
-    logger.info({ folder, subpath: subpath || '(root)' }, 'Workspace item deleted');
+    logger.info(
+      { folder, subpath: subpath || '(root)' },
+      'Workspace item deleted',
+    );
     return c.json({ ok: true });
   });
 
@@ -282,8 +336,10 @@ export function registerFileRoutes(app: Hono): void {
     if (!fromPath.startsWith(groupPath) || !toPath.startsWith(groupPath)) {
       return c.json({ error: 'Path outside workspace' }, 400);
     }
-    if (!fs.existsSync(fromPath)) return c.json({ error: 'Source not found' }, 404);
-    if (fs.existsSync(toPath)) return c.json({ error: 'Destination already exists' }, 409);
+    if (!fs.existsSync(fromPath))
+      return c.json({ error: 'Source not found' }, 404);
+    if (fs.existsSync(toPath))
+      return c.json({ error: 'Destination already exists' }, 409);
 
     fs.mkdirSync(path.dirname(toPath), { recursive: true });
     fs.renameSync(fromPath, toPath);
@@ -307,7 +363,8 @@ export function registerFileRoutes(app: Hono): void {
     }
 
     const filePath = path.resolve(groupPath, subpath);
-    if (!filePath.startsWith(groupPath)) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!filePath.startsWith(groupPath))
+      return c.json({ error: 'Path outside workspace' }, 400);
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       return c.json({ error: 'File not found' }, 404);
     }
@@ -345,7 +402,8 @@ export function registerFileRoutes(app: Hono): void {
     }
 
     const dirPath = path.resolve(groupPath, subpath);
-    if (!dirPath.startsWith(groupPath)) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!dirPath.startsWith(groupPath))
+      return c.json({ error: 'Path outside workspace' }, 400);
     if (fs.existsSync(dirPath)) return c.json({ error: 'Already exists' }, 409);
 
     fs.mkdirSync(dirPath, { recursive: true });
@@ -369,8 +427,10 @@ export function registerFileRoutes(app: Hono): void {
     }
 
     const filePath = path.resolve(groupPath, subpath);
-    if (!filePath.startsWith(groupPath)) return c.json({ error: 'Path outside workspace' }, 400);
-    if (fs.existsSync(filePath)) return c.json({ error: 'Already exists' }, 409);
+    if (!filePath.startsWith(groupPath))
+      return c.json({ error: 'Path outside workspace' }, 400);
+    if (fs.existsSync(filePath))
+      return c.json({ error: 'Already exists' }, 409);
 
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, '', 'utf-8');
@@ -382,7 +442,8 @@ export function registerFileRoutes(app: Hono): void {
   app.post('/api/workspace/cleanup-orphans', (c) => {
     if (!fs.existsSync(GROUPS_DIR)) return c.json({ deleted: [] });
 
-    const entries = fs.readdirSync(GROUPS_DIR, { withFileTypes: true })
+    const entries = fs
+      .readdirSync(GROUPS_DIR, { withFileTypes: true })
       .filter((e) => e.isDirectory() && !e.name.startsWith('.'));
 
     const deleted: string[] = [];
@@ -407,35 +468,54 @@ export function registerFileRoutes(app: Hono): void {
   // Read a root-level file (directly in GROUPS_DIR, not inside a group folder)
   app.get('/api/workspace/root/read/:file', (c) => {
     const fileName = c.req.param('file');
-    if (!fileName || /[/\\]/.test(fileName) || fileName === '..' || fileName === '.') {
+    if (
+      !fileName ||
+      /[/\\]/.test(fileName) ||
+      fileName === '..' ||
+      fileName === '.'
+    ) {
       return c.json({ error: 'Invalid file name' }, 400);
     }
-    if (!fs.existsSync(GROUPS_DIR)) return c.json({ error: 'File not found' }, 404);
+    if (!fs.existsSync(GROUPS_DIR))
+      return c.json({ error: 'File not found' }, 404);
 
     const filePath = path.resolve(GROUPS_DIR, fileName);
-    if (!filePath.startsWith(path.resolve(GROUPS_DIR))) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!filePath.startsWith(path.resolve(GROUPS_DIR)))
+      return c.json({ error: 'Path outside workspace' }, 400);
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       return c.json({ error: 'File not found' }, 404);
     }
 
     const stat = fs.statSync(filePath);
-    if (stat.size > MAX_READ_SIZE) return c.json({ error: 'File too large (max 2MB)' }, 413);
+    if (stat.size > MAX_READ_SIZE)
+      return c.json({ error: 'File too large (max 2MB)' }, 413);
 
     const ext = path.extname(filePath).toLowerCase();
     const content = fs.readFileSync(filePath, 'utf-8');
-    return c.json({ content, editable: EDITABLE_EXTS.has(ext), size: stat.size });
+    return c.json({
+      content,
+      editable: EDITABLE_EXTS.has(ext),
+      size: stat.size,
+    });
   });
 
   // Serve raw root-level file (binary-safe)
   app.get('/api/workspace/root/raw/:file', (c) => {
     const fileName = c.req.param('file');
-    if (!fileName || /[/\\]/.test(fileName) || fileName === '..' || fileName === '.') {
+    if (
+      !fileName ||
+      /[/\\]/.test(fileName) ||
+      fileName === '..' ||
+      fileName === '.'
+    ) {
       return c.json({ error: 'Invalid file name' }, 400);
     }
-    if (!fs.existsSync(GROUPS_DIR)) return c.json({ error: 'File not found' }, 404);
+    if (!fs.existsSync(GROUPS_DIR))
+      return c.json({ error: 'File not found' }, 404);
 
     const filePath = path.resolve(GROUPS_DIR, fileName);
-    if (!filePath.startsWith(path.resolve(GROUPS_DIR))) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!filePath.startsWith(path.resolve(GROUPS_DIR)))
+      return c.json({ error: 'Path outside workspace' }, 400);
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       return c.json({ error: 'File not found' }, 404);
     }
@@ -458,15 +538,22 @@ export function registerFileRoutes(app: Hono): void {
   // Write a root-level file
   app.put('/api/workspace/root/write/:file', async (c) => {
     const fileName = c.req.param('file');
-    if (!fileName || /[/\\]/.test(fileName) || fileName === '..' || fileName === '.') {
+    if (
+      !fileName ||
+      /[/\\]/.test(fileName) ||
+      fileName === '..' ||
+      fileName === '.'
+    ) {
       return c.json({ error: 'Invalid file name' }, 400);
     }
 
     const filePath = path.resolve(GROUPS_DIR, fileName);
-    if (!filePath.startsWith(path.resolve(GROUPS_DIR))) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!filePath.startsWith(path.resolve(GROUPS_DIR)))
+      return c.json({ error: 'Path outside workspace' }, 400);
 
     const ext = path.extname(filePath).toLowerCase();
-    if (!EDITABLE_EXTS.has(ext)) return c.json({ error: 'File type not editable' }, 400);
+    if (!EDITABLE_EXTS.has(ext))
+      return c.json({ error: 'File type not editable' }, 400);
 
     const body = await c.req.json<{ content: string }>();
     fs.writeFileSync(filePath, body.content, 'utf-8');
@@ -477,14 +564,21 @@ export function registerFileRoutes(app: Hono): void {
   // Delete a root-level file
   app.delete('/api/workspace/root/delete/:file', (c) => {
     const fileName = c.req.param('file');
-    if (!fileName || /[/\\]/.test(fileName) || fileName === '..' || fileName === '.') {
+    if (
+      !fileName ||
+      /[/\\]/.test(fileName) ||
+      fileName === '..' ||
+      fileName === '.'
+    ) {
       return c.json({ error: 'Invalid file name' }, 400);
     }
 
     const filePath = path.resolve(GROUPS_DIR, fileName);
-    if (!filePath.startsWith(path.resolve(GROUPS_DIR))) return c.json({ error: 'Path outside workspace' }, 400);
+    if (!filePath.startsWith(path.resolve(GROUPS_DIR)))
+      return c.json({ error: 'Path outside workspace' }, 400);
     if (!fs.existsSync(filePath)) return c.json({ error: 'Not found' }, 404);
-    if (fs.statSync(filePath).isDirectory()) return c.json({ error: 'Not a file' }, 400);
+    if (fs.statSync(filePath).isDirectory())
+      return c.json({ error: 'Not a file' }, 400);
 
     fs.rmSync(filePath);
     logger.info({ file: fileName }, 'Root workspace file deleted');
@@ -496,7 +590,8 @@ function channelFromJid(jid: string): string {
   if (jid.includes('@web.')) return 'web';
   if (jid.includes('@slack.')) return 'slack';
   if (jid.includes('@dingtalk.')) return 'dingtalk';
-  if (jid.includes('@g.us') || jid.includes('@s.whatsapp.net')) return 'whatsapp';
+  if (jid.includes('@g.us') || jid.includes('@s.whatsapp.net'))
+    return 'whatsapp';
   if (jid.includes('tg:')) return 'telegram';
   return 'unknown';
 }

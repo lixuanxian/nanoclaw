@@ -6,6 +6,7 @@ import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import {
   ContainerOutput,
   runContainerAgent,
+  writeChannelsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
 import {
@@ -65,6 +66,7 @@ export function computeNextRun(task: ScheduledTask): string | null {
 export interface SchedulerDependencies {
   registeredGroups: () => Record<string, RegisteredGroup>;
   getSessions: () => Record<string, string>;
+  getConnectedChannelIds: () => string[];
   queue: GroupQueue;
   onProcess: (
     groupJid: string,
@@ -144,6 +146,13 @@ async function runTask(
       status: t.status,
       next_run: t.next_run,
     })),
+  );
+
+  // Write channels snapshot for cross-channel messaging
+  writeChannelsSnapshot(
+    task.group_folder,
+    deps.getConnectedChannelIds(),
+    groups,
   );
 
   let result: string | null = null;

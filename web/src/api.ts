@@ -28,6 +28,33 @@ export function logout(): void {
   window.location.href = '/api/logout';
 }
 
+// --- Admin Password ---
+
+export async function getPasswordStatus(): Promise<{ hasPassword: boolean }> {
+  const res = await fetch('/api/admin-password/status', { credentials: 'same-origin' });
+  return res.json();
+}
+
+export async function setPassword(data: { currentPassword?: string; newPassword: string }): Promise<{ ok?: boolean; error?: string }> {
+  const res = await fetch('/api/admin-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function removePassword(currentPassword: string): Promise<{ ok?: boolean; error?: string }> {
+  const res = await fetch('/api/admin-password', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ currentPassword }),
+  });
+  return res.json();
+}
+
 // --- Conversations ---
 
 export async function getConversations(): Promise<Conversation[]> {

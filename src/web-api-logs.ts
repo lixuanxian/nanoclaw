@@ -21,7 +21,8 @@ export interface LogFileInfo {
 function listLogFiles(logsDir: string): LogFileInfo[] {
   if (!fs.existsSync(logsDir)) return [];
 
-  const entries = fs.readdirSync(logsDir)
+  const entries = fs
+    .readdirSync(logsDir)
     .filter((f) => f.startsWith('container-') && f.endsWith('.log'));
 
   const logs: LogFileInfo[] = entries.map((name) => {
@@ -33,7 +34,12 @@ function listLogFiles(logsDir: string): LogFileInfo[] {
           .replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3')
           .replace(/:(\d{2})-(\d{3})/, ':$1.$2')
       : stat.mtime.toISOString();
-    return { name, timestamp, size: stat.size, modifiedAt: stat.mtime.toISOString() };
+    return {
+      name,
+      timestamp,
+      size: stat.size,
+      modifiedAt: stat.mtime.toISOString(),
+    };
   });
 
   // Sort by timestamp descending (newest first)
@@ -135,7 +141,7 @@ export function registerLogRoutes(app: Hono): void {
   // Delete old logs, keeping only the last N (default 3)
   app.post('/api/logs/:folder/cleanup', async (c) => {
     const folder = c.req.param('folder');
-    const body = await c.req.json().catch(() => ({})) as { keep?: number };
+    const body = (await c.req.json().catch(() => ({}))) as { keep?: number };
     const keep = Math.max(1, body.keep ?? 3);
 
     let groupPath: string;
@@ -151,9 +157,16 @@ export function registerLogRoutes(app: Hono): void {
     const toDelete = logs.slice(keep);
     for (const log of toDelete) {
       const filePath = path.join(logsDir, log.name);
-      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(filePath);
+      } catch {
+        /* ignore */
+      }
     }
 
-    return c.json({ deleted: toDelete.map((l) => l.name), remaining: logs.length - toDelete.length });
+    return c.json({
+      deleted: toDelete.map((l) => l.name),
+      remaining: logs.length - toDelete.length,
+    });
   });
 }

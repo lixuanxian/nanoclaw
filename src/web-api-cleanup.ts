@@ -23,7 +23,8 @@ export function getDeleteInfo(jid: string): DeleteInfo {
     .prepare('SELECT folder FROM registered_groups WHERE jid = ?')
     .get(jid) as { folder: string } | undefined;
   const folder = row?.folder || null;
-  if (!folder) return { folder: null, isLastJid: true, hasFiles: false, taskCount: 0 };
+  if (!folder)
+    return { folder: null, isLastJid: true, hasFiles: false, taskCount: 0 };
 
   const remainingJids = getJidsByFolder(folder).filter((j) => j !== jid);
   const isLastJid = remainingJids.length === 0;
@@ -33,11 +34,19 @@ export function getDeleteInfo(jid: string): DeleteInfo {
     try {
       const groupPath = resolveGroupFolderPath(folder);
       hasFiles = fs.existsSync(groupPath);
-    } catch { /* invalid folder */ }
+    } catch {
+      /* invalid folder */
+    }
   }
 
   const taskCount = isLastJid
-    ? (getDb().prepare('SELECT COUNT(*) as cnt FROM scheduled_tasks WHERE group_folder = ?').get(folder) as { cnt: number }).cnt
+    ? (
+        getDb()
+          .prepare(
+            'SELECT COUNT(*) as cnt FROM scheduled_tasks WHERE group_folder = ?',
+          )
+          .get(folder) as { cnt: number }
+      ).cnt
     : 0;
 
   return { folder, isLastJid, hasFiles, taskCount };
@@ -48,7 +57,10 @@ export function getDeleteInfo(jid: string): DeleteInfo {
  * When deleteFiles is true and no other JIDs share the folder,
  * also removes scheduled tasks, log files, and working directory from disk.
  */
-export function deleteConversationFull(jid: string, deleteFiles: boolean): void {
+export function deleteConversationFull(
+  jid: string,
+  deleteFiles: boolean,
+): void {
   const row = getDb()
     .prepare('SELECT folder FROM registered_groups WHERE jid = ?')
     .get(jid) as { folder: string } | undefined;
@@ -75,7 +87,9 @@ export function deleteConversationFull(jid: string, deleteFiles: boolean): void 
   for (const { id } of taskIds) {
     getDb().prepare('DELETE FROM task_run_logs WHERE task_id = ?').run(id);
   }
-  getDb().prepare('DELETE FROM scheduled_tasks WHERE group_folder = ?').run(folder);
+  getDb()
+    .prepare('DELETE FROM scheduled_tasks WHERE group_folder = ?')
+    .run(folder);
 
   // Delete filesystem directories
   const dirs = [

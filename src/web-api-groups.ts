@@ -2,7 +2,20 @@ import { Hono } from 'hono';
 
 import { extractSearchKeywords } from './ai-search.js';
 import { ASSISTANT_NAME, TIMEZONE } from './config.js';
-import { getAllRegisteredGroups, setRegisteredGroup, getAllTasks, getTasksForGroup, createTask, updateTask, deleteTask, getTaskById, getTaskRunLogs, getAllMessagesForJids, getJidsByFolder, searchMessages } from './db.js';
+import {
+  getAllRegisteredGroups,
+  setRegisteredGroup,
+  getAllTasks,
+  getTasksForGroup,
+  createTask,
+  updateTask,
+  deleteTask,
+  getTaskById,
+  getTaskRunLogs,
+  getAllMessagesForJids,
+  getJidsByFolder,
+  searchMessages,
+} from './db.js';
 import { logger } from './logger.js';
 import { registeredGroups } from './state.js';
 
@@ -40,9 +53,10 @@ export function registerGroupRoutes(app: Hono): void {
       name: body.name ?? existing.name,
       trigger: body.trigger ?? existing.trigger,
       requiresTrigger: body.requiresTrigger ?? existing.requiresTrigger,
-      containerConfig: body.containerConfig !== undefined
-        ? (body.containerConfig ?? undefined)
-        : existing.containerConfig,
+      containerConfig:
+        body.containerConfig !== undefined
+          ? (body.containerConfig ?? undefined)
+          : existing.containerConfig,
     };
     setRegisteredGroup(jid, updated);
 
@@ -71,7 +85,13 @@ export function registerGroupRoutes(app: Hono): void {
       schedule_value: string;
       context_mode?: 'group' | 'isolated';
     }>();
-    if (!body.prompt || !body.schedule_type || !body.schedule_value || !body.group_folder || !body.chat_jid) {
+    if (
+      !body.prompt ||
+      !body.schedule_type ||
+      !body.schedule_value ||
+      !body.group_folder ||
+      !body.chat_jid
+    ) {
       return c.json({ error: 'Missing required fields' }, 400);
     }
 
@@ -79,19 +99,28 @@ export function registerGroupRoutes(app: Hono): void {
     try {
       if (body.schedule_type === 'cron') {
         const { CronExpressionParser } = await import('cron-parser');
-        const interval = CronExpressionParser.parse(body.schedule_value, { tz: TIMEZONE });
+        const interval = CronExpressionParser.parse(body.schedule_value, {
+          tz: TIMEZONE,
+        });
         nextRun = interval.next().toISOString();
       } else if (body.schedule_type === 'interval') {
         const ms = parseInt(body.schedule_value, 10);
-        if (isNaN(ms) || ms <= 0) return c.json({ error: 'Invalid interval value' }, 400);
+        if (isNaN(ms) || ms <= 0)
+          return c.json({ error: 'Invalid interval value' }, 400);
         nextRun = new Date(Date.now() + ms).toISOString();
       } else if (body.schedule_type === 'once') {
         const d = new Date(body.schedule_value);
-        if (isNaN(d.getTime())) return c.json({ error: 'Invalid date value' }, 400);
+        if (isNaN(d.getTime()))
+          return c.json({ error: 'Invalid date value' }, 400);
         nextRun = d.toISOString();
       }
     } catch (err) {
-      return c.json({ error: `Invalid schedule: ${err instanceof Error ? err.message : err}` }, 400);
+      return c.json(
+        {
+          error: `Invalid schedule: ${err instanceof Error ? err.message : err}`,
+        },
+        400,
+      );
     }
 
     const id = crypto.randomUUID();
@@ -127,7 +156,8 @@ export function registerGroupRoutes(app: Hono): void {
     const updates: Parameters<typeof updateTask>[1] = {};
     if (body.prompt !== undefined) updates.prompt = body.prompt;
     if (body.status !== undefined) updates.status = body.status;
-    if (body.context_mode !== undefined) updates.context_mode = body.context_mode;
+    if (body.context_mode !== undefined)
+      updates.context_mode = body.context_mode;
 
     // Recalculate next_run if schedule changed
     if (body.schedule_type || body.schedule_value) {
@@ -148,7 +178,12 @@ export function registerGroupRoutes(app: Hono): void {
           updates.next_run = new Date(sVal).toISOString();
         }
       } catch (err) {
-        return c.json({ error: `Invalid schedule: ${err instanceof Error ? err.message : err}` }, 400);
+        return c.json(
+          {
+            error: `Invalid schedule: ${err instanceof Error ? err.message : err}`,
+          },
+          400,
+        );
       }
     }
 
@@ -206,7 +241,8 @@ export function registerGroupRoutes(app: Hono): void {
   // --- AI-powered search ---
   app.get('/api/search/ai', async (c) => {
     const q = c.req.query('q');
-    if (!q || q.trim().length === 0) return c.json({ results: [], aiKeywords: '' });
+    if (!q || q.trim().length === 0)
+      return c.json({ results: [], aiKeywords: '' });
 
     const jid = c.req.query('jid');
     const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 50);
@@ -250,13 +286,17 @@ export function registerGroupRoutes(app: Hono): void {
     const allJids = folder ? getJidsByFolder(folder) : [jid];
     const messages = getAllMessagesForJids(allJids);
 
-    if (messages.length === 0) return c.json({ error: 'No messages found' }, 404);
+    if (messages.length === 0)
+      return c.json({ error: 'No messages found' }, 404);
 
     const name = group?.name || jid;
     const datestamp = new Date().toISOString().slice(0, 10);
 
     if (format === 'md') {
-      const lines: string[] = [`# ${name}\n`, `Exported: ${new Date().toISOString()}\n`];
+      const lines: string[] = [
+        `# ${name}\n`,
+        `Exported: ${new Date().toISOString()}\n`,
+      ];
       for (const m of messages) {
         const sender = m.is_bot_message ? ASSISTANT_NAME : m.sender_name;
         const time = new Date(m.timestamp).toLocaleString();
@@ -274,7 +314,13 @@ export function registerGroupRoutes(app: Hono): void {
       const esc = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
       const header = 'timestamp,sender,content,chat_jid,is_bot';
       const rows = messages.map((m) =>
-        [m.timestamp, esc(m.sender_name), esc(m.content), m.chat_jid, m.is_bot_message ? '1' : '0'].join(','),
+        [
+          m.timestamp,
+          esc(m.sender_name),
+          esc(m.content),
+          m.chat_jid,
+          m.is_bot_message ? '1' : '0',
+        ].join(','),
       );
       return new Response([header, ...rows].join('\n'), {
         headers: {
@@ -284,20 +330,24 @@ export function registerGroupRoutes(app: Hono): void {
       });
     }
 
-    const json = JSON.stringify({
-      exportedAt: new Date().toISOString(),
-      conversation: name,
-      folder: folder || null,
-      messageCount: messages.length,
-      messages: messages.map((m) => ({
-        id: m.id,
-        chatJid: m.chat_jid,
-        sender: m.sender_name,
-        content: m.content,
-        timestamp: m.timestamp,
-        isBot: !!m.is_bot_message,
-      })),
-    }, null, 2);
+    const json = JSON.stringify(
+      {
+        exportedAt: new Date().toISOString(),
+        conversation: name,
+        folder: folder || null,
+        messageCount: messages.length,
+        messages: messages.map((m) => ({
+          id: m.id,
+          chatJid: m.chat_jid,
+          sender: m.sender_name,
+          content: m.content,
+          timestamp: m.timestamp,
+          isBot: !!m.is_bot_message,
+        })),
+      },
+      null,
+      2,
+    );
 
     return new Response(json, {
       headers: {

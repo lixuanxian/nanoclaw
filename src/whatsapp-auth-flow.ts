@@ -44,7 +44,10 @@ export class WhatsAppAuthFlow {
    * Resolves when auth succeeds or fails (or call stop() to abort).
    */
   async start(): Promise<AuthState> {
-    if (this.state.status === 'connecting' || this.state.status === 'qr_ready') {
+    if (
+      this.state.status === 'connecting' ||
+      this.state.status === 'qr_ready'
+    ) {
       return this.state;
     }
 
@@ -109,13 +112,16 @@ export class WhatsAppAuthFlow {
           }
 
           const errorMap: Record<number, string> = {
-            [DisconnectReason.loggedOut]: 'Logged out. Delete store/auth and try again.',
+            [DisconnectReason.loggedOut]:
+              'Logged out. Delete store/auth and try again.',
             [DisconnectReason.timedOut]: 'QR code timed out. Please try again.',
           };
 
           this.state = {
             status: 'failed',
-            error: errorMap[reason] || `Connection failed (reason: ${reason || 'unknown'})`,
+            error:
+              errorMap[reason] ||
+              `Connection failed (reason: ${reason || 'unknown'})`,
           };
           this.socket = null;
           resolve(this.state);

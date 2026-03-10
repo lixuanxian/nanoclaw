@@ -10,6 +10,9 @@ import {
   App,
   Space,
   Badge,
+  Input,
+  Popconfirm,
+  Tag,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -18,9 +21,12 @@ import {
   MoonOutlined,
   SunOutlined,
   SaveOutlined,
+  LockOutlined,
+  CheckCircleOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getAIConfig, saveAIConfig, getChannels, logout } from '../api';
+import { getAIConfig, saveAIConfig, getChannels, logout, getPasswordStatus, setPassword, removePassword } from '../api';
 import { useT } from '../i18n';
 import { saveTheme } from '../theme';
 import { ProviderCard } from '../components/ProviderCard';
@@ -122,6 +128,8 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
   const [providerConfigs, setProviderConfigs] = useState<
     Record<string, { model?: string; api_base?: string; api_key?: string }>
   >({});
+  // Track which providers already have an API key on the server
+  const [providersWithKey, setProvidersWithKey] = useState<Set<string>>(new Set());
   const [aiSaving, setAiSaving] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string>('');
 
@@ -129,13 +137,34 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string>('');
 
+  // Password state
+  const [hasPassword, setHasPassword] = useState(false);
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [removePw, setRemovePw] = useState('');
+
   const loadAIConfig = useCallback(async () => {
     try {
       const data = await getAIConfig();
       const list = Array.isArray(data.providers) ? data.providers : [];
       setProviders(list);
       setDefaultProvider(data.config?.default_provider || '');
-      setProviderConfigs(data.config?.providers || {});
+
+      // Strip redacted API keys so they don't pollute the form;
+      // track which providers have a key on the server instead.
+      const rawProviders = data.config?.providers || {};
+      const hasKey = new Set<string>();
+      const cleaned: typeof rawProviders = {};
+      for (const [id, settings] of Object.entries(rawProviders)) {
+        const key = settings.api_key || '';
+        if (key.endsWith('****')) hasKey.add(id);
+        cleaned[id] = { ...settings, api_key: key.endsWith('****') ? '' : key };
+      }
+      setProviderConfigs(cleaned);
+      setProvidersWithKey(hasKey);
+
       if (list.length > 0) setSelectedProvider((prev) => prev || list[0].id);
     } catch {
       /* ignore */
@@ -153,10 +182,20 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
     }
   }, []);
 
+  const loadPasswordStatus = useCallback(async () => {
+    try {
+      const data = await getPasswordStatus();
+      setHasPassword(data.hasPassword);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     loadAIConfig();
     loadChannels();
-  }, [loadAIConfig, loadChannels]);
+    loadPasswordStatus();
+  }, [loadAIConfig, loadChannels, loadPasswordStatus]);
 
   const handleAISave = async () => {
     setAiSaving(true);
@@ -184,6 +223,60 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
     const mode = value as ThemeMode;
     saveTheme(mode);
     setThemeMode(mode);
+  };
+
+  const handlePasswordSave = async () => {
+    if (!newPw) {
+      antMessage.error(t('user.passwordRequired'));
+      return;
+    }
+    if (newPw !== confirmPw) {
+      antMessage.error(t('user.passwordMismatch'));
+      return;
+    }
+    setPwSaving(true);
+    try {
+      const res = await setPassword({
+        currentPassword: hasPassword ? currentPw : undefined,
+        newPassword: newPw,
+      });
+      if (res.ok) {
+        antMessage.success(t('user.passwordSaved'));
+        setCurrentPw('');
+        setNewPw('');
+        setConfirmPw('');
+        loadPasswordStatus();
+      } else {
+        antMessage.error(t('user.wrongPassword'));
+      }
+    } catch {
+      antMessage.error(t('user.wrongPassword'));
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
+  const handlePasswordRemove = async () => {
+    if (!removePw) {
+      antMessage.error(t('user.passwordRequired'));
+      return;
+    }
+    setPwSaving(true);
+    try {
+      const res = await removePassword(removePw);
+      if (res.ok) {
+        antMessage.success(t('user.passwordRemoved'));
+        setRemovePw('');
+        setCurrentPw('');
+        loadPasswordStatus();
+      } else {
+        antMessage.error(t('user.wrongPassword'));
+      }
+    } catch {
+      antMessage.error(t('user.wrongPassword'));
+    } finally {
+      setPwSaving(false);
+    }
   };
 
   const tabItems = [
@@ -246,6 +339,7 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
                   provider={p}
                   config={providerConfigs[p.id] || {}}
                   isDefault={p.id === defaultProvider}
+                  hasExistingKey={providersWithKey.has(p.id)}
                   onChange={(v) => handleProviderChange(p.id, v)}
                 />
               ))}
@@ -392,6 +486,74 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
                     ]}
                   />
                 </div>
+              </Space>
+            </Card>
+
+            <Card
+              size="small"
+              title={
+                <Space>
+                  <LockOutlined />
+                  {t('user.password')}
+                  {hasPassword ? (
+                    <Tag color="success" icon={<CheckCircleOutlined />}>
+                      {t('user.passwordSet')}
+                    </Tag>
+                  ) : (
+                    <Tag>{t('user.passwordNotSet')}</Tag>
+                  )}
+                </Space>
+              }
+              style={{ marginBottom: 16 }}
+            >
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {hasPassword && (
+                  <Input.Password
+                    placeholder={t('user.currentPassword')}
+                    value={currentPw}
+                    onChange={(e) => setCurrentPw(e.target.value)}
+                  />
+                )}
+                <Input.Password
+                  placeholder={t('user.newPassword')}
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                />
+                <Input.Password
+                  placeholder={t('user.confirmPassword')}
+                  value={confirmPw}
+                  onChange={(e) => setConfirmPw(e.target.value)}
+                  onPressEnter={handlePasswordSave}
+                />
+                <Button
+                  type="primary"
+                  icon={<LockOutlined />}
+                  onClick={handlePasswordSave}
+                  loading={pwSaving}
+                  block
+                >
+                  {hasPassword ? t('user.changePassword') : t('user.setPassword')}
+                </Button>
+                {hasPassword && (
+                  <Popconfirm
+                    title={t('user.removePasswordConfirm')}
+                    description={
+                      <Input.Password
+                        placeholder={t('user.currentPassword')}
+                        value={removePw}
+                        onChange={(e) => setRemovePw(e.target.value)}
+                        style={{ marginTop: 8 }}
+                      />
+                    }
+                    onConfirm={handlePasswordRemove}
+                    onCancel={() => setRemovePw('')}
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button icon={<DeleteOutlined />} danger block>
+                      {t('user.removePassword')}
+                    </Button>
+                  </Popconfirm>
+                )}
               </Space>
             </Card>
 

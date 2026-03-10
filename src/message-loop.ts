@@ -9,6 +9,7 @@ import {
 import {
   ContainerOutput,
   runContainerAgent,
+  writeChannelsSnapshot,
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
@@ -64,7 +65,11 @@ export async function processGroupMessages(
 
   // Aggregate messages from ALL JIDs in the folder
   const sinceTimestamp = state.lastAgentTimestamp[folder] || '';
-  const missedMessages = getMessagesSinceMultiJid(allJids, sinceTimestamp, ASSISTANT_NAME);
+  const missedMessages = getMessagesSinceMultiJid(
+    allJids,
+    sinceTimestamp,
+    ASSISTANT_NAME,
+  );
 
   if (missedMessages.length === 0) return true;
 
@@ -79,9 +84,10 @@ export async function processGroupMessages(
   // For resumed sessions with a single message, send raw text to avoid
   // redundant XML wrapping — the session already has context.
   const hasSession = !!state.sessions[group.folder];
-  const prompt = (hasSession && missedMessages.length === 1)
-    ? missedMessages[0].content
-    : formatMessages(missedMessages, TIMEZONE);
+  const prompt =
+    hasSession && missedMessages.length === 1
+      ? missedMessages[0].content
+      : formatMessages(missedMessages, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -117,7 +123,9 @@ export async function processGroupMessages(
   let sessionMode: 'plan' | 'edit' | undefined;
   let sessionSkills: string[] | undefined;
   if (webJid) {
-    const webCh = channels.find((c) => c.name === 'web') as WebChannel | undefined;
+    const webCh = channels.find((c) => c.name === 'web') as
+      | WebChannel
+      | undefined;
     if (webCh) {
       const sid = webJid.replace('@web.nanoclaw', '');
       sessionMode = webCh.getSessionMode(sid);
@@ -130,17 +138,35 @@ export async function processGroupMessages(
   let lastError: string | undefined;
 
   const output = await runAgent(
-    group, prompt, folder, queue,
+    group,
+    prompt,
+    folder,
+    queue,
+    channels,
     async (result) => {
       // Streaming output callback — called for each agent result
       if (result.result) {
-        const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
-        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-        logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>/<think> blocks — agent uses these for internal reasoning
+        const text = raw
+          .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+          .replace(/<think>[\s\S]*?<\/think>/g, '')
+          .trim();
+        logger.info(
+          { group: group.name },
+          `Agent output: ${raw.slice(0, 200)}`,
+        );
         if (text) {
           // Broadcast response to ALL channels sharing this folder
-          await broadcastToFolder(channels, folder, state.registeredGroups, text);
+          await broadcastToFolder(
+            channels,
+            folder,
+            state.registeredGroups,
+            text,
+          );
           outputSentToUser = true;
         }
         // Only reset idle timer on actual results, not session-update markers (result: null)
@@ -169,21 +195,33 @@ export async function processGroupMessages(
   if (output === 'error' || hadError) {
     // Send error to user so they know what went wrong (instead of silent failure)
     if (!outputSentToUser && lastError) {
-      const shortError = lastError.length > 300 ? lastError.slice(0, 300) + '...' : lastError;
-      await broadcastToFolder(channels, folder, state.registeredGroups, `Error: ${shortError}`);
+      const shortError =
+        lastError.length > 300 ? lastError.slice(0, 300) + '...' : lastError;
+      await broadcastToFolder(
+        channels,
+        folder,
+        state.registeredGroups,
+        `Error: ${shortError}`,
+      );
       outputSentToUser = true;
     }
 
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (outputSentToUser) {
-      logger.warn({ group: group.name }, 'Agent error after output was sent, skipping cursor rollback to prevent duplicates');
+      logger.warn(
+        { group: group.name },
+        'Agent error after output was sent, skipping cursor rollback to prevent duplicates',
+      );
       return true;
     }
     // Roll back cursor so retries can re-process these messages
     state.lastAgentTimestamp[folder] = previousCursor;
     saveState();
-    logger.warn({ group: group.name }, 'Agent error, rolled back message cursor for retry');
+    logger.warn(
+      { group: group.name },
+      'Agent error, rolled back message cursor for retry',
+    );
     return false;
   }
 
@@ -195,6 +233,7 @@ async function runAgent(
   prompt: string,
   folder: string,
   queue: GroupQueue,
+  channels: Channel[],
   onOutput?: (output: ContainerOutput) => Promise<void>,
   options?: { mode?: 'plan' | 'edit'; skills?: string[] },
 ): Promise<'success' | 'error'> {
@@ -230,6 +269,16 @@ async function runAgent(
     new Set(Object.keys(state.registeredGroups)),
   );
 
+  // Update connected channels snapshot for cross-channel messaging
+  const connectedChannelIds = channels
+    .filter((c) => c.isConnected())
+    .map((c) => c.name);
+  writeChannelsSnapshot(
+    group.folder,
+    connectedChannelIds,
+    state.registeredGroups,
+  );
+
   // Wrap onOutput to track session ID from streamed results
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
@@ -245,13 +294,18 @@ async function runAgent(
   const defaultCfg = loadDefaultProviderConfig();
   const providerId = group.containerConfig?.provider || defaultCfg.provider;
   const providerConfig = getProvider(providerId);
-  const modelId = group.containerConfig?.model || defaultCfg.model || providerConfig?.defaultModel;
+  const modelId =
+    group.containerConfig?.model ||
+    defaultCfg.model ||
+    providerConfig?.defaultModel;
   const apiBase = defaultCfg.api_base || providerConfig?.apiBase || '';
 
   // Inject mode instruction and skill content into prompt
   let finalPrompt = prompt;
   if (options?.mode === 'plan') {
-    finalPrompt = '[MODE: PLAN] Before executing, first outline your plan and approach step by step. Explain what you will do and why. Then proceed with implementation.\n\n' + finalPrompt;
+    finalPrompt =
+      '[MODE: PLAN] Before executing, first outline your plan and approach step by step. Explain what you will do and why. Then proceed with implementation.\n\n' +
+      finalPrompt;
   }
   if (options?.skills && options.skills.length > 0) {
     const skillContents = getSkillContents(options.skills);
@@ -268,7 +322,10 @@ async function runAgent(
       group,
       {
         prompt: finalPrompt,
-        sessionId: (providerId === 'claude' || providerId === 'claude-compatible') ? sessionId : undefined,
+        sessionId:
+          providerId === 'claude' || providerId === 'claude-compatible'
+            ? sessionId
+            : undefined,
         groupFolder: group.folder,
         chatJid,
         isMain,
@@ -277,7 +334,8 @@ async function runAgent(
         model: modelId,
         providerApiBase: apiBase,
       },
-      (proc, containerName) => queue.registerProcess(folder, proc, containerName),
+      (proc, containerName) =>
+        queue.registerProcess(folder, proc, containerName),
       wrappedOnOutput,
     );
 
@@ -316,7 +374,11 @@ export async function startMessageLoop(
   while (true) {
     try {
       const jids = Object.keys(state.registeredGroups);
-      const { messages, newTimestamp } = getNewMessages(jids, state.lastTimestamp, ASSISTANT_NAME);
+      const { messages, newTimestamp } = getNewMessages(
+        jids,
+        state.lastTimestamp,
+        ASSISTANT_NAME,
+      );
 
       if (messages.length > 0) {
         logger.info({ count: messages.length }, 'New messages');
@@ -326,7 +388,10 @@ export async function startMessageLoop(
         saveState();
 
         // Group messages by FOLDER (not JID) for cross-channel sync
-        const messagesByFolder = new Map<string, { jids: Set<string>; messages: NewMessage[] }>();
+        const messagesByFolder = new Map<
+          string,
+          { jids: Set<string>; messages: NewMessage[] }
+        >();
         for (const msg of messages) {
           const group = state.registeredGroups[msg.chat_jid];
           if (!group) continue;
@@ -345,7 +410,9 @@ export async function startMessageLoop(
           // Get any group entry for this folder to check trigger requirements
           const allJids = getJidsForFolder(folder);
           const primaryJid = allJids[0];
-          const group = primaryJid ? state.registeredGroups[primaryJid] : undefined;
+          const group = primaryJid
+            ? state.registeredGroups[primaryJid]
+            : undefined;
           if (!group) continue;
 
           const isMainGroup = group.folder === MAIN_GROUP_FOLDER;
@@ -412,10 +479,18 @@ export function recoverPendingMessages(queue: GroupQueue): void {
 
     const allJids = getJidsForFolder(group.folder);
     const sinceTimestamp = state.lastAgentTimestamp[group.folder] || '';
-    const pending = getMessagesSinceMultiJid(allJids, sinceTimestamp, ASSISTANT_NAME);
+    const pending = getMessagesSinceMultiJid(
+      allJids,
+      sinceTimestamp,
+      ASSISTANT_NAME,
+    );
     if (pending.length > 0) {
       logger.info(
-        { group: group.name, folder: group.folder, pendingCount: pending.length },
+        {
+          group: group.name,
+          folder: group.folder,
+          pendingCount: pending.length,
+        },
         'Recovery: found unprocessed messages',
       );
       queue.enqueueMessageCheck(group.folder);

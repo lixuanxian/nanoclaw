@@ -169,13 +169,35 @@ export function getToolDefinitions(): ToolDefinition[] {
       function: {
         name: 'send_message',
         description:
-          "Send a message to the user or group immediately while you're still running. Use for progress updates or to send multiple messages.",
+          "Send a message to the user or group immediately while you're still running. Use for progress updates or to send multiple messages. Supports cross-channel messaging via target_channel or target_jid.",
         parameters: {
           type: 'object',
           properties: {
             text: { type: 'string', description: 'The message text to send' },
+            target_channel: {
+              type: 'string',
+              description:
+                'Channel name to send to (e.g., "dingtalk", "slack", "whatsapp", "telegram"). Resolves to the first registered JID for that channel.',
+            },
+            target_jid: {
+              type: 'string',
+              description:
+                'Specific JID to send to directly (overrides target_channel). Use list_channels to discover available JIDs.',
+            },
           },
           required: ['text'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_channels',
+        description:
+          'List all connected messaging channels and their conversation JIDs. Use to discover available channels before sending cross-channel messages.',
+        parameters: {
+          type: 'object',
+          properties: {},
         },
       },
     },
@@ -238,6 +260,8 @@ export async function executeTool(
       return executeWebFetch(args);
     case 'send_message':
       return executeSendMessage(args, context);
+    case 'list_channels':
+      return executeListChannels();
     case 'schedule_task':
       return executeScheduleTask(args, context);
     default:
@@ -435,20 +459,85 @@ async function executeWebFetch(args: Record<string, unknown>): Promise<ToolResul
   }
 }
 
+const CHANNELS_FILE = '/workspace/ipc/connected_channels.json';
+
+/** Resolve a channel name to a JID from the channels snapshot. */
+function resolveChannelJid(channelName: string): { jid?: string; error?: string } {
+  try {
+    if (!fs.existsSync(CHANNELS_FILE)) {
+      return { error: 'No channel information available.' };
+    }
+    const data = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8'));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const channel = data.channels?.find((c: any) => c.id === channelName);
+    if (!channel) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const available = (data.channels || []).map((c: any) => c.id).join(', ');
+      return { error: `Channel "${channelName}" not found. Available: ${available || 'none'}` };
+    }
+    if (!channel.connected) {
+      return { error: `Channel "${channelName}" is not connected.` };
+    }
+    if (!channel.jids || channel.jids.length === 0) {
+      return { error: `No conversations registered for channel "${channelName}".` };
+    }
+    return { jid: channel.jids[0].jid };
+  } catch {
+    return { error: 'Failed to read channel info.' };
+  }
+}
+
 function executeSendMessage(
   args: Record<string, unknown>,
   context: ToolContext,
 ): ToolResult {
+  let targetJid = context.chatJid;
+
+  if (args.target_jid) {
+    targetJid = args.target_jid as string;
+  } else if (args.target_channel) {
+    const resolved = resolveChannelJid(args.target_channel as string);
+    if (resolved.error) {
+      return { output: resolved.error, isError: true };
+    }
+    targetJid = resolved.jid!;
+  }
+
   const data = {
     type: 'message',
-    chatJid: context.chatJid,
+    chatJid: targetJid,
     text: args.text as string,
     groupFolder: context.groupFolder,
     timestamp: new Date().toISOString(),
   };
 
   writeIpcFile('/workspace/ipc/messages', data);
-  return { output: 'Message sent.' };
+  const channelNote = targetJid !== context.chatJid ? ` (to ${targetJid})` : '';
+  return { output: `Message sent${channelNote}.` };
+}
+
+function executeListChannels(): ToolResult {
+  try {
+    if (!fs.existsSync(CHANNELS_FILE)) {
+      return { output: 'No channel information available yet.' };
+    }
+    const data = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8'));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const channels = data.channels || [];
+    if (channels.length === 0) {
+      return { output: 'No channels registered.' };
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const formatted = channels.map((ch: any) => {
+      const status = ch.connected ? 'connected' : 'disconnected';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const jids = (ch.jids || []).map((j: any) => `  - ${j.jid} (${j.name})`).join('\n');
+      return `- ${ch.displayName} (${ch.id}) [${status}]\n${jids || '  (no conversations)'}`;
+    }).join('\n');
+    return { output: `Connected channels:\n${formatted}` };
+  } catch {
+    return { output: 'Failed to read channel info.', isError: true };
+  }
 }
 
 function executeScheduleTask(

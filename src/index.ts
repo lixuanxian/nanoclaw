@@ -1,10 +1,9 @@
 import { DingTalkChannel } from './channels/dingtalk.js';
 import { SlackChannel } from './channels/slack.js';
 import { WebChannel } from './channels/web.js';
-import { WhatsAppChannel } from './channels/whatsapp.js';
-import {
-  CREDENTIAL_PROXY_PORT,
-} from './config.js';
+// WhatsApp is lazy-loaded to avoid triggering its registerChannel side-effect
+// when the channel is not enabled.
+import { ADMIN_PASSWORD, CREDENTIAL_PROXY_PORT, setAdminPassword } from './config.js';
 import { startCredentialProxy } from './credential-proxy.js';
 import './channels/index.js';
 import {
@@ -28,7 +27,13 @@ import {
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage } from './types.js';
-import { applyAiConfigToEnv, isChannelConfigured, loadEnabledChannels, saveEnabledChannels } from './channel-config.js';
+import {
+  applyAiConfigToEnv,
+  loadAdminPassword,
+  isChannelConfigured,
+  loadEnabledChannels,
+  saveEnabledChannels,
+} from './channel-config.js';
 import { logger } from './logger.js';
 import { startWebServer } from './web-server.js';
 import {
@@ -38,9 +43,12 @@ import {
   getAvailableGroups,
   sessions,
 } from './state.js';
-import { processGroupMessages, startMessageLoop, recoverPendingMessages } from './message-loop.js';
+import {
+  processGroupMessages,
+  startMessageLoop,
+  recoverPendingMessages,
+} from './message-loop.js';
 
-let whatsapp: WhatsAppChannel | undefined;
 let webChannel: WebChannel | undefined;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
@@ -66,8 +74,13 @@ const channelOpts = {
     }
     storeMessage(msg);
   },
-  onChatMetadata: (chatJid: string, timestamp: string, name?: string, channel?: string, isGroup?: boolean) =>
-    storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
+  onChatMetadata: (
+    chatJid: string,
+    timestamp: string,
+    name?: string,
+    channel?: string,
+    isGroup?: boolean,
+  ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
   registeredGroups: () => registeredGroups,
 };
 
@@ -90,9 +103,10 @@ export async function startChannelById(id: string): Promise<string | null> {
 
   try {
     if (id === 'whatsapp') {
-      whatsapp = new WhatsAppChannel(channelOpts);
-      channels.push(whatsapp);
-      await whatsapp.connect();
+      const { WhatsAppChannel } = await import('./channels/whatsapp.js');
+      const wa = new WhatsAppChannel(channelOpts);
+      channels.push(wa);
+      await wa.connect();
     } else if (id === 'slack') {
       const slack = new SlackChannel({ ...channelOpts, registerGroup });
       channels.push(slack);
@@ -114,8 +128,6 @@ export async function startChannelById(id: string): Promise<string | null> {
     // Remove failed channel from array
     const idx = channels.findIndex((c) => c.name === id);
     if (idx !== -1) channels.splice(idx, 1);
-    if (id === 'whatsapp') whatsapp = undefined;
-
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ channel: id, err }, 'Failed to start channel');
     return msg;
@@ -132,8 +144,6 @@ export async function stopChannelById(id: string): Promise<string | null> {
   try {
     await channels[idx].disconnect();
     channels.splice(idx, 1);
-    if (id === 'whatsapp') whatsapp = undefined;
-
     // Persist enabled channels
     const active = channels.map((c) => c.name);
     saveEnabledChannels(active);
@@ -160,6 +170,15 @@ async function main(): Promise<void> {
   // Apply saved AI provider API keys to process.env
   applyAiConfigToEnv();
 
+  // Load saved admin password from config if not set via env
+  if (!ADMIN_PASSWORD) {
+    const savedPassword = loadAdminPassword();
+    if (savedPassword) {
+      setAdminPassword(savedPassword);
+      logger.info('Admin password loaded from saved config');
+    }
+  }
+
   // Start credential proxy (containers route API calls through this)
   const proxyServer = await startCredentialProxy(
     CREDENTIAL_PROXY_PORT,
@@ -184,7 +203,12 @@ async function main(): Promise<void> {
   });
   channels.push(webChannel);
   await webChannel.connect();
-  startWebServer(webChannel, { startChannelById, stopChannelById, getActiveChannelIds }, undefined, queue);
+  startWebServer(
+    webChannel,
+    { startChannelById, stopChannelById, getActiveChannelIds },
+    undefined,
+    queue,
+  );
 
   // Start skill-registered channels (channels that self-register via barrel import)
   for (const channelName of getRegisteredChannelNames()) {
@@ -219,6 +243,8 @@ async function main(): Promise<void> {
   startSchedulerLoop({
     registeredGroups: () => registeredGroups,
     getSessions: () => sessions,
+    getConnectedChannelIds: () =>
+      channels.filter((c) => c.isConnected()).map((c) => c.name),
     queue,
     onProcess: (groupJid, proc, containerName, groupFolder) =>
       queue.registerProcess(groupJid, proc, containerName, groupFolder),
@@ -259,7 +285,9 @@ async function main(): Promise<void> {
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
   });
-  queue.setProcessMessagesFn((folder) => processGroupMessages(folder, channels, queue));
+  queue.setProcessMessagesFn((folder) =>
+    processGroupMessages(folder, channels, queue),
+  );
   recoverPendingMessages(queue);
   startMessageLoop(channels, queue).catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');

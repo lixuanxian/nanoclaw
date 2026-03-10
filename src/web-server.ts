@@ -7,8 +7,22 @@ import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 
-import { ADMIN_PASSWORD, ASSISTANT_NAME, WEB_HOST, WEB_PORT } from './config.js';
-import { countMessagesForJids, getAllMessagesForJids, getJidsByFolder } from './db.js';
+import {
+  ADMIN_PASSWORD,
+  ASSISTANT_NAME,
+  setAdminPassword,
+  WEB_HOST,
+  WEB_PORT,
+} from './config.js';
+import {
+  saveAdminPassword,
+  clearAdminPassword,
+} from './channel-config.js';
+import {
+  countMessagesForJids,
+  getAllMessagesForJids,
+  getJidsByFolder,
+} from './db.js';
 import { logger } from './logger.js';
 import { WebChannel } from './channels/web.js';
 import type { GroupQueue } from './group-queue.js';
@@ -38,7 +52,12 @@ const MIME_TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
-export function startWebServer(webChannel: WebChannel, channelManager?: ChannelManager, port?: number, queue?: GroupQueue): void {
+export function startWebServer(
+  webChannel: WebChannel,
+  channelManager?: ChannelManager,
+  port?: number,
+  queue?: GroupQueue,
+): void {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
@@ -59,10 +78,16 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
       : '';
     let html = readFileSync(indexHtmlPath, 'utf-8');
     if (mainBundleVersion) {
-      html = html.replace('/assets/main.js', `/assets/main.js?v=${mainBundleVersion}`);
+      html = html.replace(
+        '/assets/main.js',
+        `/assets/main.js?v=${mainBundleVersion}`,
+      );
     }
     if (mainCssVersion) {
-      html = html.replace('/assets/main.css', `/assets/main.css?v=${mainCssVersion}`);
+      html = html.replace(
+        '/assets/main.css',
+        `/assets/main.css?v=${mainCssVersion}`,
+      );
     }
     return html;
   };
@@ -77,25 +102,27 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
     });
   });
 
-  // --- Auth middleware (only active when ADMIN_PASSWORD is set) ---
-  if (ADMIN_PASSWORD) {
-    const token = authToken();
-    const publicPaths = new Set(['/login', '/api/login', '/.well-known/agent-card.json', '/favicon.ico']);
+  // --- Auth middleware (always registered, dynamically checks ADMIN_PASSWORD) ---
+  const publicPaths = new Set([
+    '/login',
+    '/api/login',
+    '/api/admin-password/status',
+    '/.well-known/agent-card.json',
+    '/favicon.ico',
+  ]);
 
-    app.use('*', async (c, next) => {
-      const path = c.req.path;
-      if (publicPaths.has(path)) return next();
-      // Allow static assets through without auth
-      if (path.startsWith('/assets/')) return next();
-      const cookie = getCookie(c, 'nanoclaw_auth');
-      if (cookie === token) return next();
-      // For API/WS requests, return 401 instead of redirect
-      if (path.startsWith('/api/') || path === '/ws') {
-        return c.json({ error: 'Unauthorized' }, 401);
-      }
-      return c.redirect('/login');
-    });
-  }
+  app.use('*', async (c, next) => {
+    if (!ADMIN_PASSWORD) return next();
+    const path = c.req.path;
+    if (publicPaths.has(path)) return next();
+    if (path.startsWith('/assets/')) return next();
+    const cookie = getCookie(c, 'nanoclaw_auth');
+    if (cookie === authToken()) return next();
+    if (path.startsWith('/api/') || path === '/ws') {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    return c.redirect('/login');
+  });
 
   // --- Login API ---
   app.post('/api/login', async (c) => {
@@ -121,6 +148,59 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
     return c.redirect('/login');
   });
 
+  // --- Admin password management ---
+  app.get('/api/admin-password/status', (c) => {
+    return c.json({ hasPassword: !!ADMIN_PASSWORD });
+  });
+
+  app.post('/api/admin-password', async (c) => {
+    const body = await c.req.json<{
+      currentPassword?: string;
+      newPassword: string;
+    }>();
+    const newPw = typeof body.newPassword === 'string' ? body.newPassword : '';
+    if (!newPw) {
+      return c.json({ error: 'New password is required' }, 400);
+    }
+
+    // If password already set, verify current password
+    if (ADMIN_PASSWORD) {
+      const cur =
+        typeof body.currentPassword === 'string' ? body.currentPassword : '';
+      if (cur !== ADMIN_PASSWORD) {
+        return c.json({ error: 'Incorrect current password' }, 401);
+      }
+    }
+
+    // Save and apply
+    saveAdminPassword(newPw);
+    setAdminPassword(newPw);
+
+    // Set auth cookie so the current session stays authenticated
+    setCookie(c, 'nanoclaw_auth', authToken(), {
+      httpOnly: true,
+      sameSite: 'Strict',
+      path: '/',
+      maxAge: 30 * 24 * 60 * 60,
+    });
+
+    return c.json({ ok: true });
+  });
+
+  app.delete('/api/admin-password', async (c) => {
+    const body = await c.req.json<{ currentPassword: string }>();
+    const cur =
+      typeof body.currentPassword === 'string' ? body.currentPassword : '';
+    if (!ADMIN_PASSWORD || cur !== ADMIN_PASSWORD) {
+      return c.json({ error: 'Incorrect current password' }, 401);
+    }
+
+    clearAdminPassword();
+    setAdminPassword('');
+    deleteCookie(c, 'nanoclaw_auth', { path: '/' });
+    return c.json({ ok: true });
+  });
+
   // --- Agent Card discovery (A2A protocol) ---
   app.get('/.well-known/agent-card.json', (c) => {
     return c.json({
@@ -138,8 +218,7 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
         {
           id: 'chat',
           name: 'General Assistant',
-          description:
-            'Chat, task execution, code, web search, and more',
+          description: 'Chat, task execution, code, web search, and more',
         },
       ],
     });
@@ -152,17 +231,26 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
   app.get(
     '/ws',
     upgradeWebSocket((c) => {
-      const sessionId = c.req.query('session') || WebChannel.generateSessionId();
+      const sessionId =
+        c.req.query('session') || WebChannel.generateSessionId();
       const requestedJid = c.req.query('jid') || null;
 
       // Viewing a non-web channel's history (read-only until user sends a message)
-      let isHistoryView = requestedJid != null && !requestedJid.endsWith('@web.nanoclaw');
+      let isHistoryView =
+        requestedJid != null && !requestedJid.endsWith('@web.nanoclaw');
       let connectionRegistered = false;
 
       return {
         onOpen(_evt, ws) {
           if (!isHistoryView) {
-            webChannel.handleConnection(sessionId, ws as unknown as { send(data: string): void; close(): void; readyState: number });
+            webChannel.handleConnection(
+              sessionId,
+              ws as unknown as {
+                send(data: string): void;
+                close(): void;
+                readyState: number;
+              },
+            );
             connectionRegistered = true;
           }
 
@@ -183,19 +271,26 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
                 olderCount,
                 messages: recent.map((m) => ({
                   id: m.id,
-                  content: m.content,
+                  content: m.content ?? '',
                   sender: m.sender_name,
                   timestamp: m.timestamp,
-                  is_bot: m.is_bot_message || m.content.startsWith(`${ASSISTANT_NAME}:`),
-                  channel: m.chat_jid.includes('@web.') ? 'web'
-                    : m.chat_jid.includes('@slack.') ? 'slack'
-                    : m.chat_jid.includes('@dingtalk.') ? 'dingtalk'
-                    : m.chat_jid.includes('@g.us') ? 'whatsapp' : 'unknown',
+                  is_bot:
+                    m.is_bot_message ||
+                    (m.content ?? '').startsWith(`${ASSISTANT_NAME}:`),
+                  channel: (m.chat_jid ?? '').includes('@web.')
+                    ? 'web'
+                    : (m.chat_jid ?? '').includes('@slack.')
+                      ? 'slack'
+                      : (m.chat_jid ?? '').includes('@dingtalk.')
+                        ? 'dingtalk'
+                        : (m.chat_jid ?? '').includes('@g.us')
+                          ? 'whatsapp'
+                          : 'unknown',
                 })),
               }),
             );
-          } catch {
-            // No history yet — that's fine
+          } catch (err) {
+            logger.warn({ err, jid }, 'Failed to send chat history on WebSocket open');
           }
         },
 
@@ -208,15 +303,35 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
               // the same conversation instead of creating a new web chat.
               if (isHistoryView && requestedJid) {
                 isHistoryView = false;
-                webChannel.handleConnection(sessionId, ws as unknown as { send(data: string): void; close(): void; readyState: number });
+                webChannel.handleConnection(
+                  sessionId,
+                  ws as unknown as {
+                    send(data: string): void;
+                    close(): void;
+                    readyState: number;
+                  },
+                );
                 connectionRegistered = true;
 
                 const groups = webChannel.getRegisteredGroups();
                 const viewedGroup = groups[requestedJid];
                 const targetFolder = viewedGroup?.folder;
-                webChannel.handleMessage(sessionId, data.text || '', data.files, data.mode, data.skills, targetFolder);
+                webChannel.handleMessage(
+                  sessionId,
+                  data.text || '',
+                  data.files,
+                  data.mode,
+                  data.skills,
+                  targetFolder,
+                );
               } else {
-                webChannel.handleMessage(sessionId, data.text || '', data.files, data.mode, data.skills);
+                webChannel.handleMessage(
+                  sessionId,
+                  data.text || '',
+                  data.files,
+                  data.mode,
+                  data.skills,
+                );
               }
             }
           } catch (err) {
@@ -262,8 +377,6 @@ export function startWebServer(webChannel: WebChannel, channelManager?: ChannelM
 
   injectWebSocket(server);
 
-  logger.info(
-    { host: WEB_HOST, port: listenPort },
-    `Web server started at http://${WEB_HOST}:${listenPort}`,
-  );
+  // Always log the server URL on startup, even if the user has disabled other logging
+  console.log(`Web server started at http://${WEB_HOST}:${listenPort}`);
 }

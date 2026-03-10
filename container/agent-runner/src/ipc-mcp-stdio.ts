@@ -34,6 +34,34 @@ function writeIpcFile(dir: string, data: object): string {
   return filename;
 }
 
+const CHANNELS_FILE = path.join(IPC_DIR, 'connected_channels.json');
+
+/** Resolve a channel name (e.g. "dingtalk") to a JID from the channels snapshot. */
+function resolveChannelJid(channelName: string): { jid?: string; error?: string } {
+  try {
+    if (!fs.existsSync(CHANNELS_FILE)) {
+      return { error: 'No channel information available. connected_channels.json not found.' };
+    }
+    const data = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8'));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const channel = data.channels?.find((c: any) => c.id === channelName);
+    if (!channel) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const available = (data.channels || []).map((c: any) => c.id).join(', ');
+      return { error: `Channel "${channelName}" not found. Available: ${available || 'none'}` };
+    }
+    if (!channel.connected) {
+      return { error: `Channel "${channelName}" is configured but not connected.` };
+    }
+    if (!channel.jids || channel.jids.length === 0) {
+      return { error: `No conversations registered for channel "${channelName}". Someone needs to message the bot on that channel first.` };
+    }
+    return { jid: channel.jids[0].jid };
+  } catch (err) {
+    return { error: `Failed to read channel info: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 const server = new McpServer({
   name: 'nanoclaw',
   version: '1.0.0',
@@ -41,15 +69,31 @@ const server = new McpServer({
 
 server.tool(
   'send_message',
-  "Send a message to the user or group immediately while you're still running. Use this for progress updates or to send multiple messages. You can call this multiple times.",
+  `Send a message to the user or group immediately while you're still running. Use this for progress updates or to send multiple messages. You can call this multiple times.
+
+Cross-channel messaging: Use target_channel (e.g., "dingtalk", "slack") to send to a different channel. Use list_channels to see available channels and their JIDs. Use target_jid to send to a specific conversation JID directly.`,
   {
     text: z.string().describe('The message text to send'),
     sender: z.string().optional().describe('Your role/identity name (e.g. "Researcher"). When set, messages appear from a dedicated bot in Telegram.'),
+    target_channel: z.string().optional().describe('Channel name to send to (e.g., "dingtalk", "slack", "whatsapp", "telegram"). Resolves to the first registered JID for that channel.'),
+    target_jid: z.string().optional().describe('Specific JID to send to directly (overrides target_channel). Use list_channels to discover available JIDs.'),
   },
   async (args) => {
+    let targetJid = chatJid;
+
+    if (args.target_jid) {
+      targetJid = args.target_jid;
+    } else if (args.target_channel) {
+      const resolved = resolveChannelJid(args.target_channel);
+      if (resolved.error) {
+        return { content: [{ type: 'text' as const, text: resolved.error }], isError: true };
+      }
+      targetJid = resolved.jid!;
+    }
+
     const data: Record<string, string | undefined> = {
       type: 'message',
-      chatJid,
+      chatJid: targetJid,
       text: args.text,
       sender: args.sender || undefined,
       groupFolder,
@@ -58,7 +102,39 @@ server.tool(
 
     writeIpcFile(MESSAGES_DIR, data);
 
-    return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
+    const channelNote = targetJid !== chatJid ? ` (to ${targetJid})` : '';
+    return { content: [{ type: 'text' as const, text: `Message sent${channelNote}.` }] };
+  },
+);
+
+server.tool(
+  'list_channels',
+  'List all connected messaging channels and their conversation JIDs. Use this to discover available channels before sending cross-channel messages with send_message.',
+  {},
+  async () => {
+    try {
+      if (!fs.existsSync(CHANNELS_FILE)) {
+        return { content: [{ type: 'text' as const, text: 'No channel information available yet.' }] };
+      }
+      const data = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8'));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const channels = data.channels || [];
+      if (channels.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No channels registered.' }] };
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const formatted = channels.map((ch: any) => {
+        const status = ch.connected ? 'connected' : 'disconnected';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const jids = (ch.jids || []).map((j: any) => `    - ${j.jid} (${j.name})`).join('\n');
+        return `- ${ch.displayName} (${ch.id}) [${status}]\n${jids || '    (no conversations)'}`;
+      }).join('\n');
+      return { content: [{ type: 'text' as const, text: `Connected channels:\n${formatted}` }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error reading channels: ${err instanceof Error ? err.message : String(err)}` }],
+      };
+    }
   },
 );
 

@@ -74,12 +74,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
             try {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
               if (data.type === 'message' && data.chatJid && data.text) {
-                // Authorization: verify this group can send to this chatJid
+                // Authorization: allow cross-channel messaging to any registered JID.
+                // The agent can send to channels other than its own (e.g., web→dingtalk)
+                // as long as the target JID is registered in the system.
                 const targetGroup = registeredGroups[data.chatJid];
-                if (
-                  isMain ||
-                  (targetGroup && targetGroup.folder === sourceGroup)
-                ) {
+                if (isMain || targetGroup) {
                   await deps.sendMessage(data.chatJid, data.text);
                   logger.info(
                     { chatJid: data.chatJid, sourceGroup },
@@ -88,7 +87,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 } else {
                   logger.warn(
                     { chatJid: data.chatJid, sourceGroup },
-                    'Unauthorized IPC message attempt blocked',
+                    'Unauthorized IPC message attempt blocked (target not registered)',
                   );
                 }
               }
@@ -474,7 +473,11 @@ export async function processTaskIpc(
               },
             });
             logger.info(
-              { groupFolder: data.groupFolder, provider: data.provider, model: data.model },
+              {
+                groupFolder: data.groupFolder,
+                provider: data.provider,
+                model: data.model,
+              },
               'Provider updated via IPC',
             );
             break;
