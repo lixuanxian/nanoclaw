@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -43,6 +44,11 @@ export type { AvailableGroup } from './container-snapshots.js';
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
+export interface ImageAttachment {
+  relativePath: string;
+  mediaType: string;
+}
+
 export interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -55,6 +61,7 @@ export interface ContainerInput {
   provider?: string;
   model?: string;
   providerApiBase?: string;
+  imageAttachments?: ImageAttachment[];
 }
 
 export interface ContainerOutput {
@@ -87,8 +94,11 @@ function buildVolumeMounts(
 
     const envFile = path.join(projectRoot, '.env');
     if (fs.existsSync(envFile)) {
+      // Shadow the .env file so secrets are never exposed inside the container.
+      // /dev/null exists on Unix; on Windows Docker Desktop maps NUL appropriately.
+      const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
       mounts.push({
-        hostPath: '/dev/null',
+        hostPath: nullDevice,
         containerPath: '/workspace/project/.env',
         readonly: true,
       });
@@ -157,6 +167,20 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Share host Copilot CLI auth so the container can use `copilot` provider.
+  // Must be read-write: copilot extracts platform-specific packages into pkg/linux-x64/.
+  const copilotConfigDir = path.join(os.homedir(), '.copilot');
+  if (fs.existsSync(copilotConfigDir)) {
+    // Ensure linux-x64 pkg dir exists (host may only have win32-x64)
+    const linuxPkgDir = path.join(copilotConfigDir, 'pkg', 'linux-x64');
+    fs.mkdirSync(linuxPkgDir, { recursive: true });
+    mounts.push({
+      hostPath: copilotConfigDir,
+      containerPath: '/home/node/.copilot',
+      readonly: false,
+    });
+  }
+
   const groupIpcDir = resolveGroupIpcPath(group.folder);
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
@@ -179,7 +203,7 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
+  if (fs.existsSync(agentRunnerSrc)) {
     fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
   }
   mounts.push({

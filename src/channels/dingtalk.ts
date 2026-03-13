@@ -235,10 +235,11 @@ export class DingTalkChannel implements Channel {
     // Update conversation metadata (sessionWebhook, isGroup, userId) and persist
     const existing = this.conversations.get(conversationId);
     const meta: ConversationMeta = {
-      sessionWebhookUrl: data.sessionWebhook || existing?.sessionWebhookUrl || '',
+      sessionWebhookUrl:
+        data.sessionWebhook || existing?.sessionWebhookUrl || '',
       sessionWebhookExpiresAt: data.sessionWebhook
-        ? (data.sessionWebhookExpiredTime || Date.now() + 3600000)
-        : (existing?.sessionWebhookExpiresAt || 0),
+        ? data.sessionWebhookExpiredTime || Date.now() + 3600000
+        : existing?.sessionWebhookExpiresAt || 0,
       isGroup,
       userId: !isGroup ? senderId : existing?.userId,
     };
@@ -411,7 +412,9 @@ export class DingTalkChannel implements Channel {
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
-      throw new Error(`DingTalk OpenAPI DM send failed (${resp.status}): ${body}`);
+      throw new Error(
+        `DingTalk OpenAPI DM send failed (${resp.status}): ${body}`,
+      );
     }
 
     const result = (await resp.json()) as { processQueryKey?: string };
@@ -474,13 +477,18 @@ export class DingTalkChannel implements Channel {
             this.conversations.set(id, meta as ConversationMeta);
           }
           logger.debug(
-            { count: this.conversations.size, robotCode: this.robotCode || '(not yet captured)' },
+            {
+              count: this.conversations.size,
+              robotCode: this.robotCode || '(not yet captured)',
+            },
             'Loaded persisted DingTalk conversation metadata',
           );
         }
       }
     } catch {
-      logger.warn('Failed to load DingTalk conversation metadata, starting fresh');
+      logger.warn(
+        'Failed to load DingTalk conversation metadata, starting fresh',
+      );
     }
   }
 

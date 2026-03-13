@@ -16,7 +16,7 @@ interface Props {
 }
 
 // Providers that only need a model field (uses CLI credentials)
-const CLI_ONLY = new Set(['claude']);
+const CLI_ONLY = new Set(['claude', 'copilot']);
 // Providers that need model + API URL + API key
 const FULL_CONFIG = new Set(['claude-compatible', 'openai-compatible']);
 

@@ -14,10 +14,7 @@ import {
   WEB_HOST,
   WEB_PORT,
 } from './config.js';
-import {
-  saveAdminPassword,
-  clearAdminPassword,
-} from './channel-config.js';
+import { saveAdminPassword, clearAdminPassword } from './channel-config.js';
 import {
   countMessagesForJids,
   getAllMessagesForJids,
@@ -283,14 +280,19 @@ export function startWebServer(
                       ? 'slack'
                       : (m.chat_jid ?? '').includes('@dingtalk.')
                         ? 'dingtalk'
-                        : (m.chat_jid ?? '').includes('@g.us')
-                          ? 'whatsapp'
-                          : 'unknown',
+                        : (m.chat_jid ?? '').includes('@qq.')
+                          ? 'qq'
+                          : (m.chat_jid ?? '').includes('@g.us')
+                            ? 'whatsapp'
+                            : 'unknown',
                 })),
               }),
             );
           } catch (err) {
-            logger.warn({ err, jid }, 'Failed to send chat history on WebSocket open');
+            logger.warn(
+              { err, jid },
+              'Failed to send chat history on WebSocket open',
+            );
           }
         },
 

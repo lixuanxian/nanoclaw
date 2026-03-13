@@ -71,6 +71,17 @@ export async function broadcastToFolder(
     .filter(([, g]) => g.folder === folder)
     .map(([jid]) => jid);
 
+  logger.debug(
+    {
+      folder,
+      targets,
+      connected: targets.filter((jid) =>
+        channels.some((c) => c.ownsJid(jid) && c.isConnected()),
+      ),
+    },
+    'broadcastToFolder targets',
+  );
+
   // Pick the first connected JID as the one that stores the message in DB.
   // All other channels send-only to avoid duplicate messages in folder history.
   const storeJid = targets.find((jid) =>

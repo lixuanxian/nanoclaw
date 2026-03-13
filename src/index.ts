@@ -3,7 +3,11 @@ import { SlackChannel } from './channels/slack.js';
 import { WebChannel } from './channels/web.js';
 // WhatsApp is lazy-loaded to avoid triggering its registerChannel side-effect
 // when the channel is not enabled.
-import { ADMIN_PASSWORD, CREDENTIAL_PROXY_PORT, setAdminPassword } from './config.js';
+import {
+  ADMIN_PASSWORD,
+  CREDENTIAL_PROXY_PORT,
+  setAdminPassword,
+} from './config.js';
 import { startCredentialProxy } from './credential-proxy.js';
 import './channels/index.js';
 import {
@@ -34,6 +38,7 @@ import {
   loadEnabledChannels,
   saveEnabledChannels,
 } from './channel-config.js';
+import { loadCopilotAuth } from './copilot-auth.js';
 import { logger } from './logger.js';
 import { startWebServer } from './web-server.js';
 import {
@@ -115,6 +120,11 @@ export async function startChannelById(id: string): Promise<string | null> {
       const dingtalk = new DingTalkChannel({ ...channelOpts, registerGroup });
       channels.push(dingtalk);
       await dingtalk.connect();
+    } else if (id === 'qq') {
+      const { QQChannel } = await import('./channels/qq.js');
+      const qq = new QQChannel({ ...channelOpts, registerGroup });
+      channels.push(qq);
+      await qq.connect();
     } else {
       return `Unknown channel: ${id}`;
     }
@@ -169,6 +179,9 @@ async function main(): Promise<void> {
 
   // Apply saved AI provider API keys to process.env
   applyAiConfigToEnv();
+
+  // Extract Copilot CLI OAuth token from Windows Credential Manager (if available)
+  await loadCopilotAuth();
 
   // Load saved admin password from config if not set via env
   if (!ADMIN_PASSWORD) {
@@ -296,10 +309,11 @@ async function main(): Promise<void> {
 }
 
 // Guard: only run when executed directly, not when imported by tests
+import { pathToFileURL } from 'url';
 const isDirectRun =
   process.argv[1] &&
   new URL(import.meta.url).pathname ===
-    new URL(`file://${process.argv[1]}`).pathname;
+    pathToFileURL(process.argv[1]).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

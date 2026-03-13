@@ -4,6 +4,7 @@
  *
  * Providers:
  *   claude            — Claude Agent SDK (default when Claude CLI is available locally)
+ *   copilot           — GitHub Copilot CLI (fallback when Claude CLI is not available)
  *   claude-compatible — Claude / Claude Compatible API (Anthropic Messages format)
  *   openai-compatible — OpenAI / OpenAI Compatible API (chat completions format)
  *   minimax           — MiniMax
@@ -70,11 +71,19 @@ export const PROVIDERS: Record<string, ProviderConfig> = {
     defaultModel: 'Doubao-Seed-2.0-Code',
     secretEnvVar: 'DOUBAO_API_KEY',
   },
+  copilot: {
+    id: 'copilot',
+    name: 'Copilot CLI',
+    apiBase: '',
+    defaultModel: 'claude-sonnet-4',
+    secretEnvVar: 'GITHUB_TOKEN',
+  },
 };
 
 /** Ordered list of provider IDs for UI display. */
 export const PROVIDER_ORDER = [
   'claude',
+  'copilot',
   'claude-compatible',
   'openai-compatible',
   'deepseek',
@@ -111,5 +120,9 @@ export function getProvider(id: string): ProviderConfig | undefined {
 }
 
 export function getProviderSecretKeys(): string[] {
-  return [...new Set(Object.values(PROVIDERS).map((p) => p.secretEnvVar))];
+  const keys = new Set(Object.values(PROVIDERS).map((p) => p.secretEnvVar));
+  // Copilot CLI checks these env vars in order: COPILOT_GITHUB_TOKEN > GH_TOKEN > GITHUB_TOKEN
+  keys.add('COPILOT_GITHUB_TOKEN');
+  keys.add('GH_TOKEN');
+  return [...keys];
 }

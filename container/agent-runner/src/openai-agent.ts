@@ -12,6 +12,11 @@ import fs from 'fs';
 import path from 'path';
 import { getToolDefinitions, executeTool } from './tools.js';
 
+interface ImageAttachment {
+  relativePath: string;
+  mediaType: string;
+}
+
 export interface OpenAIAgentInput {
   prompt: string;
   provider: string;
@@ -23,6 +28,7 @@ export interface OpenAIAgentInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  imageAttachments?: ImageAttachment[];
 }
 
 interface ContainerOutput {
@@ -31,9 +37,13 @@ interface ContainerOutput {
   error?: string;
 }
 
+type UserContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 type ConversationMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string | UserContentPart[] }
   | {
       role: 'assistant';
       content: string | null;
@@ -276,8 +286,29 @@ export async function runOpenAIAgent(input: OpenAIAgentInput): Promise<void> {
   // Condense old history (summarize turns beyond the last 5)
   messages = await condenseHistory(client, input.model, messages);
 
-  // Add user message
-  messages.push({ role: 'user', content: input.prompt });
+  // Add user message (with optional image attachments as multimodal content)
+  if (input.imageAttachments && input.imageAttachments.length > 0) {
+    const parts: UserContentPart[] = [];
+    for (const img of input.imageAttachments) {
+      const imgPath = path.join('/workspace/group', img.relativePath);
+      try {
+        if (fs.existsSync(imgPath)) {
+          const data = fs.readFileSync(imgPath).toString('base64');
+          parts.push({
+            type: 'image_url',
+            image_url: { url: `data:${img.mediaType};base64,${data}` },
+          });
+          log(`Loaded image: ${img.relativePath}`);
+        }
+      } catch (err) {
+        log(`Failed to load image ${imgPath}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    parts.push({ type: 'text', text: input.prompt });
+    messages.push({ role: 'user', content: parts });
+  } else {
+    messages.push({ role: 'user', content: input.prompt });
+  }
 
   const context = {
     chatJid: input.chatJid,

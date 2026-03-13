@@ -8,11 +8,14 @@ import {
 } from './config.js';
 import {
   ContainerOutput,
+  ImageAttachment,
   runContainerAgent,
   writeChannelsSnapshot,
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
+import { runCliAgent } from './cli-runner.js';
+import { isClaudeCliAvailable, isCopilotCliAvailable } from './channel-config.js';
 import {
   getAllTasks,
   getMessagesSinceMultiJid,
@@ -291,14 +294,35 @@ async function runAgent(
     : undefined;
 
   // Resolve AI provider: session config -> global default -> 'claude'
+  // Check ALL JIDs in the folder for a per-group provider override,
+  // since the user may have configured it on any JID sharing this folder.
   const defaultCfg = loadDefaultProviderConfig();
-  const providerId = group.containerConfig?.provider || defaultCfg.provider;
+  let groupContainerConfig = group.containerConfig;
+  if (!groupContainerConfig?.provider) {
+    for (const jid of allJids) {
+      const g = state.registeredGroups[jid];
+      if (g?.containerConfig?.provider) {
+        groupContainerConfig = g.containerConfig;
+        break;
+      }
+    }
+  }
+  const providerId = groupContainerConfig?.provider || defaultCfg.provider;
   const providerConfig = getProvider(providerId);
+  const isSessionProvider = !!groupContainerConfig?.provider;
   const modelId =
-    group.containerConfig?.model ||
-    defaultCfg.model ||
+    groupContainerConfig?.model ||
+    (isSessionProvider ? providerConfig?.defaultModel : defaultCfg.model) ||
     providerConfig?.defaultModel;
-  const apiBase = defaultCfg.api_base || providerConfig?.apiBase || '';
+  const apiBase =
+    (isSessionProvider ? providerConfig?.apiBase : defaultCfg.api_base) ||
+    providerConfig?.apiBase ||
+    '';
+
+  logger.info(
+    { group: group.name, folder, provider: providerId, model: modelId, isSessionProvider },
+    'Resolved AI provider for agent',
+  );
 
   // Inject mode instruction and skill content into prompt
   let finalPrompt = prompt;
@@ -318,12 +342,40 @@ async function runAgent(
   }
 
   try {
-    const output = await runContainerAgent(
+    // Use local CLI runner when provider is 'claude' and CLI is available
+    const useCliRunner =
+      (providerId === 'claude' && isClaudeCliAvailable()) ||
+      (providerId === 'copilot' && isCopilotCliAvailable());
+    const runner = useCliRunner ? runCliAgent : runContainerAgent;
+
+    if (useCliRunner) {
+      logger.info({ group: group.name }, 'Using local Claude CLI runner');
+    }
+
+    // Parse [Image: ...] markers from prompt to pass as multimodal attachments
+    const imageAttachments: ImageAttachment[] = [];
+    const imagePattern = /\[Image:\s*([^\]]+)\]/g;
+    let imageMatch;
+    while ((imageMatch = imagePattern.exec(finalPrompt)) !== null) {
+      const rawPath = imageMatch[1].trim().split(/\s/)[0]; // path before caption
+      // Infer media type from extension
+      const ext = rawPath.split('.').pop()?.toLowerCase() || '';
+      const mimeMap: Record<string, string> = {
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+      };
+      imageAttachments.push({
+        relativePath: rawPath,
+        mediaType: mimeMap[ext] || 'image/jpeg',
+      });
+    }
+
+    const output = await runner(
       group,
       {
         prompt: finalPrompt,
         sessionId:
-          providerId === 'claude' || providerId === 'claude-compatible'
+          providerId === 'claude' || providerId === 'claude-compatible' || providerId === 'copilot'
             ? sessionId
             : undefined,
         groupFolder: group.folder,
@@ -333,6 +385,7 @@ async function runAgent(
         provider: providerId,
         model: modelId,
         providerApiBase: apiBase,
+        ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
       },
       (proc, containerName) =>
         queue.registerProcess(folder, proc, containerName),

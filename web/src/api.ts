@@ -210,6 +210,12 @@ export async function saveAIConfig(data: {
   });
 }
 
+// --- Session Provider ---
+
+export async function getSessionProvider(sessionId: string): Promise<{ providerId: string; provider: string; model: string }> {
+  return request<{ providerId: string; provider: string; model: string }>(`/api/provider/${encodeURIComponent(sessionId)}`);
+}
+
 // --- Skills ---
 
 export async function getSkills(): Promise<SkillInfo[]> {

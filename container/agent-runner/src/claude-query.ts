@@ -4,6 +4,11 @@ import path from 'path';
 import { query, HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { createPreCompactHook } from './transcript.js';
 
+interface ImageAttachment {
+  relativePath: string;
+  mediaType: string;
+}
+
 interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -16,6 +21,7 @@ interface ContainerInput {
   provider?: string;
   model?: string;
   providerApiBase?: string;
+  imageAttachments?: ImageAttachment[];
 }
 
 interface ContainerOutput {
@@ -25,9 +31,21 @@ interface ContainerOutput {
   error?: string;
 }
 
+interface ImageContentBlock {
+  type: 'image';
+  source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string };
+}
+
+interface TextContentBlock {
+  type: 'text';
+  text: string;
+}
+
+type ContentBlock = ImageContentBlock | TextContentBlock;
+
 interface SDKUserMessage {
   type: 'user';
-  message: { role: 'user'; content: string };
+  message: { role: 'user'; content: string | ContentBlock[] };
   parent_tool_use_id: null;
   session_id: string;
 }
@@ -62,6 +80,16 @@ export class MessageStream {
     this.queue.push({
       type: 'user',
       message: { role: 'user', content: text },
+      parent_tool_use_id: null,
+      session_id: '',
+    });
+    this.waiting?.();
+  }
+
+  pushMultimodal(content: ContentBlock[]): void {
+    this.queue.push({
+      type: 'user',
+      message: { role: 'user', content },
       parent_tool_use_id: null,
       session_id: '',
     });
@@ -189,7 +217,36 @@ export async function runQuery(
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
   const stream = new MessageStream();
-  stream.push(prompt);
+
+  // If image attachments are present, build multimodal content blocks
+  if (containerInput.imageAttachments && containerInput.imageAttachments.length > 0) {
+    const contentBlocks: ContentBlock[] = [];
+    for (const img of containerInput.imageAttachments) {
+      const imgPath = path.join('/workspace/group', img.relativePath);
+      try {
+        if (fs.existsSync(imgPath)) {
+          const data = fs.readFileSync(imgPath).toString('base64');
+          contentBlocks.push({
+            type: 'image',
+            source: { type: 'base64', media_type: img.mediaType as ImageContentBlock['source']['media_type'], data },
+          });
+          log(`Loaded image attachment: ${img.relativePath} (${img.mediaType})`);
+        } else {
+          log(`Image not found: ${imgPath}`);
+        }
+      } catch (err) {
+        log(`Failed to load image ${imgPath}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (contentBlocks.length > 0) {
+      contentBlocks.push({ type: 'text', text: prompt });
+      stream.pushMultimodal(contentBlocks);
+    } else {
+      stream.push(prompt);
+    }
+  } else {
+    stream.push(prompt);
+  }
 
   // Poll IPC for follow-up messages and _close sentinel during the query
   let ipcPolling = true;
@@ -241,7 +298,7 @@ export async function runQuery(
   }
 
   for await (const message of query({
-    prompt: stream,
+    prompt: stream as AsyncIterable<any>,
     options: {
       cwd: '/workspace/group',
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,

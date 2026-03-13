@@ -3,6 +3,11 @@
 
 FROM node:22-slim
 
+# Use Aliyun mirrors (apt + npm) for faster builds in China
+RUN printf 'deb http://mirrors.aliyun.com/debian/ bookworm main contrib non-free non-free-firmware\ndeb http://mirrors.aliyun.com/debian/ bookworm-updates main contrib non-free non-free-firmware\ndeb http://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free non-free-firmware\n' > /etc/apt/sources.list \
+    && rm -rf /etc/apt/sources.list.d/* \
+    && npm config set registry https://registry.npmmirror.com
+
 # Install system dependencies for Chromium
 RUN apt-get update && apt-get install -y \
     chromium \
@@ -30,8 +35,8 @@ RUN apt-get update && apt-get install -y \
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install agent-browser and claude-code globally
-RUN npm install -g agent-browser @anthropic-ai/claude-code
+# Install agent-browser, claude-code, and copilot CLI globally
+RUN npm install -g agent-browser @anthropic-ai/claude-code @github/copilot
 
 # Create app directory
 WORKDIR /app
@@ -58,7 +63,9 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 RUN printf '#!/bin/bash\nset -e\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\ncat > /tmp/input.json\nnode /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
-RUN chown -R node:node /workspace && chmod 777 /home/node
+# Pre-create copilot CLI cache dir so it doesn't fail on first run
+RUN chown -R node:node /workspace && chmod 777 /home/node \
+    && mkdir -p /home/node/.copilot/pkg && chown -R node:node /home/node/.copilot
 
 # Switch to non-root user (required for --dangerously-skip-permissions)
 USER node

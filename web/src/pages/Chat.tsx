@@ -4,8 +4,8 @@ import { SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-desi
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useWebSocket, type ConnectionStatus } from '../ws';
 import { useT } from '../i18n';
-import { getAIConfig, getChannels, createSession, getHistoryAround, markAsRead, deleteMessage, editMessage } from '../api';
-import { CHANNEL_ICONS } from '../components/Icons';
+import { getAIConfig, getChannels, createSession, getHistoryAround, markAsRead, deleteMessage, editMessage, getSessionProvider } from '../api';
+import { CHANNEL_ICONS, PROVIDER_ICONS } from '../components/Icons';
 import type { ChannelInfo } from '../types';
 import { Sidebar } from '../components/Sidebar';
 import { MessageList } from '../components/MessageList';
@@ -67,6 +67,7 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
   const [activeWorkspaceFolder, setActiveWorkspaceFolder] = useState<string | null>(null);
   const [modelInfo, setModelInfo] = useState('—');
+  const [providerId, setProviderId] = useState<string | null>(null);
   const [connectedChannels, setConnectedChannels] = useState<ChannelInfo[]>([]);
   const [highlightTimestamp, setHighlightTimestamp] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
@@ -131,6 +132,7 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
     onTyping,
   });
 
+  // Load global model info + channels once on mount
   useEffect(() => {
     let mounted = true;
     const loadModelInfo = async () => {
@@ -147,7 +149,10 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
         const model = providerConfig?.model || provider?.defaultModel || '—';
         const providerName = provider?.name || defaultProviderId;
 
-        if (mounted) setModelInfo(`${providerName}: ${model}`);
+        if (mounted) {
+          setModelInfo(`${providerName}: ${model}`);
+          setProviderId(defaultProviderId);
+        }
       } catch {
         if (mounted) setModelInfo('—');
       }
@@ -169,6 +174,22 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
       mounted = false;
     };
   }, []);
+
+  // Update model info when session changes (session-specific provider/model)
+  useEffect(() => {
+    let mounted = true;
+    const loadSessionModel = async () => {
+      try {
+        const data = await getSessionProvider(sessionId);
+        if (mounted && data.provider) {
+          setModelInfo(data.model ? `${data.provider}: ${data.model}` : data.provider);
+          setProviderId(data.providerId || null);
+        }
+      } catch { /* ignore — falls back to global default already set */ }
+    };
+    loadSessionModel();
+    return () => { mounted = false; };
+  }, [sessionId]);
 
   // Persist session
   const updateSession = (id: string) => {
@@ -192,9 +213,12 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
   };
 
   const handleSelectSession = (jid: string, _name: string, messageTimestamp?: string, query?: string) => {
-    // If already viewing this session's chat (not a task/workspace), skip re-selecting
-    // to avoid clearing messages without a WebSocket reconnect to re-fetch them
-    if (jid === activeJid && !messageTimestamp && !viewingTaskId && !activeWorkspaceFolder) return;
+    // If already viewing this session's chat (not a task/workspace), just mark as read
+    // to clear unread badge without re-fetching messages
+    if (jid === activeJid && !messageTimestamp && !viewingTaskId && !activeWorkspaceFolder) {
+      markAsRead(jid).then(() => setRefreshKey((k) => k + 1)).catch(() => {});
+      return;
+    }
 
     // Extract session ID from JID (format: sessionId@web.nanoclaw)
     const sid = jid.includes('@') ? jid.split('@')[0] : jid;
@@ -233,9 +257,26 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
 
   const handleSend = (text: string, files?: UploadedFile[], mode?: 'plan' | 'edit', skills?: string[]) => {
     if (!text && !files) return;
-    // Add user message to UI immediately
+    // Build content with file markers so images display immediately
+    let content = text;
+    if (files && files.length > 0) {
+      const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+      const otherFiles = files.filter((f) => !f.type.startsWith('image/'));
+      const parts: string[] = [];
+      for (const f of imageFiles) {
+        parts.push(`[Image: uploads/${f.storedName}] ${f.name}`);
+      }
+      if (otherFiles.length > 0) {
+        const fileLines = otherFiles.map(
+          (f) => `- ${f.name} (${f.type}, ${f.size} bytes): /workspace/group/uploads/${f.storedName}`,
+        );
+        parts.push(`[Attached files]\n${fileLines.join('\n')}`);
+      }
+      const attachBlock = parts.join('\n');
+      content = text ? `${text}\n\n${attachBlock}` : attachBlock;
+    }
     const userMsg: Message = {
-      content: text,
+      content,
       sender: t('chat.you'),
       timestamp: new Date().toISOString(),
       is_bot: false,
@@ -330,6 +371,11 @@ export function ChatPage({ themeMode, setThemeMode }: Props) {
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed(!collapsed)}
           />
+
+          {providerId && PROVIDER_ICONS[providerId] && (() => {
+            const ProviderIcon = PROVIDER_ICONS[providerId];
+            return <ProviderIcon size={16} />;
+          })()}
 
           <Text
             type="secondary"

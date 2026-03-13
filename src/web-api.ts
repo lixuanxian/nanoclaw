@@ -172,14 +172,17 @@ export function registerApiRoutes(
 
     // Preserve existing API keys when the incoming value is empty or redacted
     const existing = loadAiConfig();
-    const mergedProviders: Record<string, { model?: string; api_base?: string; api_key?: string }> = {};
+    const mergedProviders: Record<
+      string,
+      { model?: string; api_base?: string; api_key?: string }
+    > = {};
     for (const [id, settings] of Object.entries(body.providers || {})) {
       const incomingKey = settings.api_key || '';
       const existingKey = existing.providers[id]?.api_key || '';
       const isRedacted = incomingKey.endsWith('****');
       mergedProviders[id] = {
         ...settings,
-        api_key: (!incomingKey || isRedacted) ? existingKey : incomingKey,
+        api_key: !incomingKey || isRedacted ? existingKey : incomingKey,
       };
     }
 
@@ -210,11 +213,15 @@ export function registerApiRoutes(
     const defaultCfg = loadDefaultProviderConfig();
     const providerId = group?.containerConfig?.provider || defaultCfg.provider;
     const providerConfig = getProvider(providerId);
+    const isSessionProvider = !!group?.containerConfig?.provider;
     return c.json({
+      providerId,
       provider: providerConfig?.name || providerId,
       model:
         group?.containerConfig?.model ||
-        defaultCfg.model ||
+        (isSessionProvider
+          ? providerConfig?.defaultModel
+          : defaultCfg.model) ||
         providerConfig?.defaultModel ||
         '',
     });
@@ -293,16 +300,19 @@ export function registerApiRoutes(
       content: m.content ?? '',
       sender: m.sender_name,
       timestamp: m.timestamp,
-      is_bot: m.is_bot_message || (m.content ?? '').startsWith(`${ASSISTANT_NAME}:`),
+      is_bot:
+        m.is_bot_message || (m.content ?? '').startsWith(`${ASSISTANT_NAME}:`),
       channel: (m.chat_jid ?? '').includes('@web.')
         ? 'web'
         : (m.chat_jid ?? '').includes('@slack.')
           ? 'slack'
           : (m.chat_jid ?? '').includes('@dingtalk.')
             ? 'dingtalk'
-            : (m.chat_jid ?? '').includes('@g.us')
-              ? 'whatsapp'
-              : 'unknown',
+            : (m.chat_jid ?? '').includes('@qq.')
+              ? 'qq'
+              : (m.chat_jid ?? '').includes('@g.us')
+                ? 'whatsapp'
+                : 'unknown',
     });
 
     // Around: load a window of messages centered on a specific timestamp
@@ -671,6 +681,35 @@ export function getChannelStatusList(
         'ch.dtGuide.3',
         'ch.dtGuide.4',
         'ch.dtGuide.5',
+      ],
+    },
+    {
+      id: 'qq',
+      name: 'QQ',
+      status: resolveChannelStatus('qq', activeIds, enabledIds),
+      enabled: activeIds.includes('qq'),
+      configurable: true,
+      fields: [
+        {
+          key: 'app_id',
+          label: 'App ID',
+          type: 'text',
+          placeholder: '102146862',
+        },
+        {
+          key: 'client_secret',
+          label: 'Client Secret',
+          type: 'password',
+          placeholder: '',
+        },
+      ],
+      config: loadChannelConfigRedacted('qq'),
+      guideKeys: [
+        'ch.qqGuide.1',
+        'ch.qqGuide.2',
+        'ch.qqGuide.3',
+        'ch.qqGuide.4',
+        'ch.qqGuide.5',
       ],
     },
   ];

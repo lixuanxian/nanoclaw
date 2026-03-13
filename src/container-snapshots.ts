@@ -56,7 +56,9 @@ function channelIdFromJid(jid: string): string | null {
   if (jid.endsWith('@web.nanoclaw')) return 'web';
   if (jid.endsWith('@slack.nanoclaw')) return 'slack';
   if (jid.endsWith('@dingtalk.nanoclaw')) return 'dingtalk';
-  if (jid.endsWith('@g.us') || jid.endsWith('@s.whatsapp.net')) return 'whatsapp';
+  if (jid.endsWith('@qq.nanoclaw')) return 'qq';
+  if (jid.endsWith('@g.us') || jid.endsWith('@s.whatsapp.net'))
+    return 'whatsapp';
   if (jid.startsWith('tg:')) return 'telegram';
   return null;
 }

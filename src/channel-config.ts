@@ -189,7 +189,7 @@ export function loadAiConfigRedacted(): AiConfig {
 let _claudeCliAvailable: boolean | undefined;
 
 /** Check if Claude CLI binary is available on the host. */
-function isClaudeCliAvailable(): boolean {
+export function isClaudeCliAvailable(): boolean {
   if (_claudeCliAvailable === undefined) {
     try {
       execSync('claude --version', { stdio: 'pipe', timeout: 5000 });
@@ -201,6 +201,22 @@ function isClaudeCliAvailable(): boolean {
   return _claudeCliAvailable;
 }
 
+/** Cache for Copilot CLI detection (checked once per process). */
+let _copilotCliAvailable: boolean | undefined;
+
+/** Check if GitHub Copilot CLI binary is available on the host. */
+export function isCopilotCliAvailable(): boolean {
+  if (_copilotCliAvailable === undefined) {
+    try {
+      execSync('copilot version', { stdio: 'pipe', timeout: 5000 });
+      _copilotCliAvailable = true;
+    } catch {
+      _copilotCliAvailable = false;
+    }
+  }
+  return _copilotCliAvailable;
+}
+
 /**
  * Resolve the active default provider's config for use in the agent pipeline.
  * Priority: settings page > env vars > claude (if CLI available) > none.
@@ -210,7 +226,9 @@ function isClaudeCliAvailable(): boolean {
 export function loadDefaultProviderConfig(): ResolvedProviderConfig {
   const config = loadAiConfig();
   const providerId =
-    config.default_provider || (isClaudeCliAvailable() ? 'claude' : '');
+    config.default_provider
+    || (isClaudeCliAvailable() ? 'claude' : '')
+    || (isCopilotCliAvailable() ? 'copilot' : '');
   const providerConfig = providerId ? getProvider(providerId) : undefined;
   const settings =
     (providerId && config.providers[providerId]) || emptySettings();
@@ -231,7 +249,11 @@ const ADMIN_CONFIG_KEY = '_admin';
 export function loadAdminPassword(): string {
   const all = readAll();
   const admin = all[ADMIN_CONFIG_KEY];
-  if (admin && typeof admin === 'object' && typeof admin.password === 'string') {
+  if (
+    admin &&
+    typeof admin === 'object' &&
+    typeof admin.password === 'string'
+  ) {
     return admin.password;
   }
   return '';

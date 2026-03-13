@@ -26,8 +26,11 @@ interface Props {
 }
 
 function renderMarkdown(text: string): string {
-  // Strip <attachments> blocks before rendering
-  const cleaned = text.replace(/<attachments>[\s\S]*?<\/attachments>/g, '');
+  // Strip <attachments> blocks, [Image: ...] markers, and [Attached files ...] blocks before rendering
+  const cleaned = text
+    .replace(/<attachments>[\s\S]*?<\/attachments>/g, '')
+    .replace(/\[Image:\s*uploads\/[^\]]+\]\s*.*/g, '')
+    .replace(/\[Attached files[^\]]*\]\n(?:- .+\n?)*/g, '');
   const html = marked.parse(cleaned, { async: false }) as string;
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
@@ -45,19 +48,50 @@ function renderMarkdown(text: string): string {
 
 function extractFiles(content: string): Array<{ name: string; path: string; type: string }> {
   const files: Array<{ name: string; path: string; type: string }> = [];
-  const regex = /<file\s+name="([^"]*)"[^>]*path="([^"]*)"[^>]*type="([^"]*)"[^>]*\/>/g;
+
+  // Parse <file name="..." path="..." type="..." /> XML tags
+  const xmlRegex = /<file\s+name="([^"]*)"[^>]*path="([^"]*)"[^>]*type="([^"]*)"[^>]*\/>/g;
   let m: RegExpExecArray | null;
-  while ((m = regex.exec(content)) !== null) {
+  while ((m = xmlRegex.exec(content)) !== null) {
     files.push({ name: m[1], path: m[2], type: m[3] });
   }
+
+  // Parse [Image: uploads/storedName] caption markers (from web channel)
+  const imgRegex = /\[Image:\s*(uploads\/[^\]\s]+)\]\s*(.*)/g;
+  while ((m = imgRegex.exec(content)) !== null) {
+    const storedPath = m[1]; // e.g. "uploads/1710331234567-screenshot.png"
+    const caption = m[2].trim() || storedPath.split('/').pop() || 'image';
+    const ext = storedPath.split('.').pop()?.toLowerCase() || '';
+    const mimeMap: Record<string, string> = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
+    };
+    files.push({
+      name: caption,
+      path: `/workspace/group/${storedPath}`,
+      type: mimeMap[ext] || 'image/jpeg',
+    });
+  }
+
+  // Parse [Attached files ...] blocks with "- name (type, size): /workspace/group/uploads/..." lines
+  const attachRegex = /- (.+?) \(([^,]+),.*?\):\s*(\/workspace\/group\/uploads\/\S+)/g;
+  while ((m = attachRegex.exec(content)) !== null) {
+    files.push({ name: m[1], path: m[3], type: m[2] });
+  }
+
   return files;
 }
 
-function FilePreview({ file }: { file: { name: string; path: string; type: string } }) {
+function FilePreview({ file, sessionId }: { file: { name: string; path: string; type: string }; sessionId?: string | null }) {
   // Rewrite container paths to API paths for web access
-  const url = file.path.startsWith('/workspace/group/uploads/')
-    ? `/api/files/${file.path.split('/uploads/')[1]}`
-    : file.path;
+  // API route: /api/files/:session/:filename
+  let url = file.path;
+  if (file.path.startsWith('/workspace/group/uploads/') && sessionId) {
+    const filename = file.path.split('/uploads/')[1];
+    url = `/api/files/${sessionId}/${filename}`;
+  } else if (file.path.startsWith('/api/files/')) {
+    url = file.path;
+  }
 
   if (file.type.startsWith('image/')) {
     return (
@@ -122,13 +156,14 @@ function highlightKeywords(html: string, query: string): string {
 
 interface BubbleProps {
   msg: Message;
+  sessionId?: string | null;
   highlight?: boolean;
   searchQuery?: string;
   onDelete?: (msg: Message) => void;
   onEdit?: (msg: Message) => void;
 }
 
-function MessageBubble({ msg, highlight, searchQuery, onDelete, onEdit }: BubbleProps) {
+function MessageBubble({ msg, sessionId, highlight, searchQuery, onDelete, onEdit }: BubbleProps) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -165,7 +200,7 @@ function MessageBubble({ msg, highlight, searchQuery, onDelete, onEdit }: Bubble
       )}
       {files.length > 0 && (
         <div className="bubble-files">
-          {files.map((f, i) => <FilePreview key={i} file={f} />)}
+          {files.map((f, i) => <FilePreview key={i} file={f} sessionId={sessionId} />)}
         </div>
       )}
     </>
@@ -305,6 +340,7 @@ export function MessageList({ messages, sessionId, jid, olderCount, isTyping, on
         <MessageBubble
           key={`${msg.timestamp}-${i}`}
           msg={msg}
+          sessionId={sessionId}
           highlight={highlightTimestamp === msg.timestamp}
           searchQuery={highlightTimestamp === msg.timestamp ? searchQuery ?? undefined : undefined}
           onDelete={onDeleteMessage}

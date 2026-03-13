@@ -19,7 +19,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { runOpenAIAgent } from './openai-agent.js';
 import { runAnthropicAgent } from './anthropic-agent.js';
+import { runCopilotAgent } from './copilot-query.js';
 import { drainIpcInput, runQuery, waitForIpcMessage } from './claude-query.js';
+
+interface ImageAttachment {
+  relativePath: string;
+  mediaType: string;
+}
 
 interface ContainerInput {
   prompt: string;
@@ -33,6 +39,7 @@ interface ContainerInput {
   provider?: string;
   model?: string;
   providerApiBase?: string;
+  imageAttachments?: ImageAttachment[];
 }
 
 interface ContainerOutput {
@@ -88,6 +95,12 @@ async function main(): Promise<void> {
   // Provider routing
   const provider = containerInput.provider || 'claude';
 
+  // Copilot CLI provider — runs `copilot` binary inside the container
+  if (provider === 'copilot') {
+    await runCopilotAgent(containerInput);
+    return;
+  }
+
   // OpenAI-compatible providers (non-Claude, non-Claude-compatible)
   if (provider !== 'claude' && provider !== 'claude-compatible') {
     const SECRET_KEY_MAP: Record<string, string> = {
@@ -132,6 +145,7 @@ async function main(): Promise<void> {
       isMain: containerInput.isMain,
       isScheduledTask: containerInput.isScheduledTask,
       assistantName: containerInput.assistantName,
+      imageAttachments: containerInput.imageAttachments,
     });
     return;
   }

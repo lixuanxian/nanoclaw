@@ -13,6 +13,7 @@ import {
   Input,
   Popconfirm,
   Tag,
+  Tooltip,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -320,11 +321,12 @@ export function SettingsPage({ themeMode, setThemeMode }: Props) {
                   return {
                     value: p.id,
                     label: (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Badge status={dot as 'success'} />
-                        {Icon && <Icon size={14} />}
-                        {p.name}
-                      </span>
+                      <Tooltip title={p.name}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Badge status={dot as 'success'} />
+                          {Icon && <Icon size={16} />}
+                        </span>
+                      </Tooltip>
                     ),
                   };
                 })}

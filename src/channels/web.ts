@@ -190,12 +190,29 @@ export class WebChannel implements Channel {
 
     let content = text;
     if (files && files.length > 0) {
-      const lines = files.map(
-        (f) =>
-          `<file name="${escapeAttr(f.name)}" path="/workspace/group/uploads/${f.storedName}" type="${f.type}" size="${f.size}" />`,
-      );
-      const block = `<attachments>\n${lines.join('\n')}\n</attachments>`;
-      content = text ? `${text}\n\n${block}` : block;
+      const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+      const otherFiles = files.filter((f) => !f.type.startsWith('image/'));
+
+      const parts: string[] = [];
+
+      // Image files: use [Image: ...] marker so agent-runner sends as multimodal content blocks
+      for (const f of imageFiles) {
+        parts.push(`[Image: uploads/${f.storedName}] ${f.name}`);
+      }
+
+      // Non-image files: reference with path so agent can read them
+      if (otherFiles.length > 0) {
+        const fileLines = otherFiles.map(
+          (f) =>
+            `- ${f.name} (${f.type}, ${f.size} bytes): /workspace/group/uploads/${f.storedName}`,
+        );
+        parts.push(
+          `[Attached files — use the Read tool to view them]\n${fileLines.join('\n')}`,
+        );
+      }
+
+      const attachBlock = parts.join('\n');
+      content = text ? `${text}\n\n${attachBlock}` : attachBlock;
     }
 
     const now = new Date().toISOString();
