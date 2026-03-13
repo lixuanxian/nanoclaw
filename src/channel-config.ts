@@ -226,9 +226,9 @@ export function isCopilotCliAvailable(): boolean {
 export function loadDefaultProviderConfig(): ResolvedProviderConfig {
   const config = loadAiConfig();
   const providerId =
-    config.default_provider
-    || (isClaudeCliAvailable() ? 'claude' : '')
-    || (isCopilotCliAvailable() ? 'copilot' : '');
+    config.default_provider ||
+    (isClaudeCliAvailable() ? 'claude' : '') ||
+    (isCopilotCliAvailable() ? 'copilot' : '');
   const providerConfig = providerId ? getProvider(providerId) : undefined;
   const settings =
     (providerId && config.providers[providerId]) || emptySettings();

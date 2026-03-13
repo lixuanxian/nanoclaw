@@ -72,13 +72,18 @@ export function extractCopilotToken(): Promise<string | null> {
       { timeout: 10_000, windowsHide: true },
       (err, stdout, stderr) => {
         if (err) {
-          logger.debug({ err, stderr }, 'Failed to extract Copilot token from Credential Manager');
+          logger.debug(
+            { err, stderr },
+            'Failed to extract Copilot token from Credential Manager',
+          );
           resolve(null);
           return;
         }
         const token = stdout.trim();
         if (!token || token === 'NOT_FOUND') {
-          logger.debug('No Copilot CLI credential found in Windows Credential Manager');
+          logger.debug(
+            'No Copilot CLI credential found in Windows Credential Manager',
+          );
           resolve(null);
           return;
         }

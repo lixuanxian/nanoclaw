@@ -129,9 +129,7 @@ export class QQChannel implements Channel {
     // Get access token and gateway URL, then connect WebSocket
     const token = await this.getAccessToken();
     const gatewayUrl = await this.fetchGatewayUrl(token);
-    await this.connectWebSocket(
-      this.session?.resumeGatewayUrl || gatewayUrl,
-    );
+    await this.connectWebSocket(this.session?.resumeGatewayUrl || gatewayUrl);
   }
 
   isConnected(): boolean {
@@ -155,8 +153,7 @@ export class QQChannel implements Channel {
     for (const chunk of chunks) {
       const lastMsg = this.lastMsgIds.get(jid);
       // Passive reply: use msg_id if within 5 minutes
-      const usePassive =
-        lastMsg && Date.now() - lastMsg.timestamp < 300_000;
+      const usePassive = lastMsg && Date.now() - lastMsg.timestamp < 300_000;
 
       if (convType === 'group') {
         await this.sendWithFallback(
@@ -310,9 +307,7 @@ export class QQChannel implements Channel {
         if (!resolved) {
           resolved = true;
           reject(
-            new Error(
-              `QQ WebSocket closed before ready (code ${event.code})`,
-            ),
+            new Error(`QQ WebSocket closed before ready (code ${event.code})`),
           );
           return;
         }
@@ -386,15 +381,18 @@ export class QQChannel implements Channel {
           this.session = null;
         }
         // Wait a bit then identify/resume
-        setTimeout(() => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
-            if (canResume && this.session?.sessionId) {
-              this.sendResume();
-            } else {
-              this.sendIdentify();
+        setTimeout(
+          () => {
+            if (this.ws?.readyState === WebSocket.OPEN) {
+              if (canResume && this.session?.sessionId) {
+                this.sendResume();
+              } else {
+                this.sendIdentify();
+              }
             }
-          }
-        }, 1000 + Math.random() * 4000);
+          },
+          1000 + Math.random() * 4000,
+        );
         break;
       }
     }
@@ -798,7 +796,12 @@ export class QQChannel implements Channel {
     // QQ API can return 200 with error code in body
     if (respJson.code && respJson.code !== 0) {
       logger.error(
-        { code: respJson.code, message: respJson.message, trace_id: respJson.trace_id, label },
+        {
+          code: respJson.code,
+          message: respJson.message,
+          trace_id: respJson.trace_id,
+          label,
+        },
         'QQ API returned error code',
       );
       throw new Error(
@@ -871,11 +874,7 @@ export class QQChannel implements Channel {
 
   // --- Group Registration ---
 
-  private ensureRegistered(
-    jid: string,
-    openid: string,
-    type: ConvType,
-  ): void {
+  private ensureRegistered(jid: string, openid: string, type: ConvType): void {
     const groups = this.opts.registeredGroups();
     if (groups[jid]) return;
 
@@ -933,7 +932,10 @@ export class QQChannel implements Channel {
             }
           }
           logger.debug(
-            { conversations: this.conversations.size, hasSession: !!this.session },
+            {
+              conversations: this.conversations.size,
+              hasSession: !!this.session,
+            },
             'Loaded persisted QQ session',
           );
         }

@@ -312,8 +312,7 @@ async function main(): Promise<void> {
 import { pathToFileURL } from 'url';
 const isDirectRun =
   process.argv[1] &&
-  new URL(import.meta.url).pathname ===
-    pathToFileURL(process.argv[1]).pathname;
+  new URL(import.meta.url).pathname === pathToFileURL(process.argv[1]).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

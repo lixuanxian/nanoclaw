@@ -15,7 +15,10 @@ import {
   writeTasksSnapshot,
 } from './container-runner.js';
 import { runCliAgent } from './cli-runner.js';
-import { isClaudeCliAvailable, isCopilotCliAvailable } from './channel-config.js';
+import {
+  isClaudeCliAvailable,
+  isCopilotCliAvailable,
+} from './channel-config.js';
 import {
   getAllTasks,
   getMessagesSinceMultiJid,
@@ -320,7 +323,13 @@ async function runAgent(
     '';
 
   logger.info(
-    { group: group.name, folder, provider: providerId, model: modelId, isSessionProvider },
+    {
+      group: group.name,
+      folder,
+      provider: providerId,
+      model: modelId,
+      isSessionProvider,
+    },
     'Resolved AI provider for agent',
   );
 
@@ -361,8 +370,12 @@ async function runAgent(
       // Infer media type from extension
       const ext = rawPath.split('.').pop()?.toLowerCase() || '';
       const mimeMap: Record<string, string> = {
-        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        webp: 'image/webp',
+        bmp: 'image/bmp',
       };
       imageAttachments.push({
         relativePath: rawPath,
@@ -375,7 +388,9 @@ async function runAgent(
       {
         prompt: finalPrompt,
         sessionId:
-          providerId === 'claude' || providerId === 'claude-compatible' || providerId === 'copilot'
+          providerId === 'claude' ||
+          providerId === 'claude-compatible' ||
+          providerId === 'copilot'
             ? sessionId
             : undefined,
         groupFolder: group.folder,

@@ -219,9 +219,7 @@ export function registerApiRoutes(
       provider: providerConfig?.name || providerId,
       model:
         group?.containerConfig?.model ||
-        (isSessionProvider
-          ? providerConfig?.defaultModel
-          : defaultCfg.model) ||
+        (isSessionProvider ? providerConfig?.defaultModel : defaultCfg.model) ||
         providerConfig?.defaultModel ||
         '',
     });

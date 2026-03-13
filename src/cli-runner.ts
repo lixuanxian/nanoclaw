@@ -25,7 +25,11 @@ const IPC_POLL_MS = 500;
 function shouldClose(inputDir: string): boolean {
   const sentinel = path.join(inputDir, '_close');
   if (fs.existsSync(sentinel)) {
-    try { fs.unlinkSync(sentinel); } catch { /* ignore */ }
+    try {
+      fs.unlinkSync(sentinel);
+    } catch {
+      /* ignore */
+    }
     return true;
   }
   return false;
@@ -35,8 +39,9 @@ function shouldClose(inputDir: string): boolean {
 function drainIpcInput(inputDir: string): string[] {
   try {
     fs.mkdirSync(inputDir, { recursive: true });
-    const files = fs.readdirSync(inputDir)
-      .filter(f => f.endsWith('.json'))
+    const files = fs
+      .readdirSync(inputDir)
+      .filter((f) => f.endsWith('.json'))
       .sort();
 
     const messages: string[] = [];
@@ -49,7 +54,11 @@ function drainIpcInput(inputDir: string): string[] {
           messages.push(data.text);
         }
       } catch {
-        try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(filePath);
+        } catch {
+          /* ignore */
+        }
       }
     }
     return messages;
@@ -117,7 +126,13 @@ function writeMcpConfig(
 /** CLI profile — encapsulates command name and flag differences between CLIs. */
 interface CliProfile {
   command: string;
-  buildArgs: (prompt: string, cwd: string, mcpConfigPath: string, sessionId?: string, model?: string) => string[];
+  buildArgs: (
+    prompt: string,
+    cwd: string,
+    mcpConfigPath: string,
+    sessionId?: string,
+    model?: string,
+  ) => string[];
 }
 
 const CLI_PROFILES: Record<string, CliProfile> = {
@@ -125,12 +140,17 @@ const CLI_PROFILES: Record<string, CliProfile> = {
     command: process.env.NANOCLAW_CLAUDE_CMD || 'claude',
     buildArgs: (prompt, cwd, mcpConfigPath, sessionId, model) => {
       const args = [
-        '-p', prompt,
-        '--output-format', 'stream-json',
+        '-p',
+        prompt,
+        '--output-format',
+        'stream-json',
         '--verbose',
-        '-c', cwd,
-        '--mcp-config', mcpConfigPath,
-        '--permission-mode', 'bypassPermissions',
+        '-c',
+        cwd,
+        '--mcp-config',
+        mcpConfigPath,
+        '--permission-mode',
+        'bypassPermissions',
       ];
       if (sessionId) args.push('--resume', sessionId);
       if (model) args.push('--model', model);
@@ -141,9 +161,12 @@ const CLI_PROFILES: Record<string, CliProfile> = {
     command: 'copilot',
     buildArgs: (prompt, _cwd, mcpConfigPath, sessionId, model) => {
       const args = [
-        '-p', prompt,
-        '--output-format', 'json',
-        '--additional-mcp-config', `@${mcpConfigPath}`,
+        '-p',
+        prompt,
+        '--output-format',
+        'json',
+        '--additional-mcp-config',
+        `@${mcpConfigPath}`,
         '--yolo',
       ];
       if (sessionId) args.push('--resume', sessionId);
@@ -179,14 +202,23 @@ function runCliQuery(
   error?: string;
 }> {
   return new Promise((resolve) => {
-    const cliArgs = profile.buildArgs(prompt, cwd, mcpConfigPath, sessionId, model);
+    const cliArgs = profile.buildArgs(
+      prompt,
+      cwd,
+      mcpConfigPath,
+      sessionId,
+      model,
+    );
     const cliName = `cli-${group.folder.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
     logger.info(
       { group: group.name, cliName, cwd, hasSession: !!sessionId },
       'Spawning CLI agent',
     );
-    logger.debug({ cliArgs: [profile.command, ...cliArgs].join(' ') }, 'CLI command');
+    logger.debug(
+      { cliArgs: [profile.command, ...cliArgs].join(' ') },
+      'CLI command',
+    );
 
     const proc = spawn(profile.command, cliArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -234,9 +266,16 @@ function runCliQuery(
           const event = JSON.parse(trimmed);
 
           // Capture session ID from init event
-          if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
+          if (
+            event.type === 'system' &&
+            event.subtype === 'init' &&
+            event.session_id
+          ) {
             newSessionId = event.session_id;
-            logger.debug({ sessionId: newSessionId }, 'CLI session initialized');
+            logger.debug(
+              { sessionId: newSessionId },
+              'CLI session initialized',
+            );
           }
 
           // Emit result events
@@ -281,7 +320,11 @@ function runCliQuery(
       logger.error({ group: group.name, cliName }, 'CLI timeout, killing');
       proc.kill('SIGTERM');
       setTimeout(() => {
-        try { proc.kill('SIGKILL'); } catch { /* already dead */ }
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          /* already dead */
+        }
       }, 15000);
     };
 
@@ -298,7 +341,10 @@ function runCliQuery(
         if (hadOutput) {
           outputChain.then(() => resolve({ newSessionId, status: 'success' }));
         } else {
-          resolve({ status: 'error', error: `CLI timed out after ${configTimeout}ms` });
+          resolve({
+            status: 'error',
+            error: `CLI timed out after ${configTimeout}ms`,
+          });
         }
         return;
       }
@@ -353,7 +399,11 @@ export async function runCliAgent(
   fs.mkdirSync(inputDir, { recursive: true });
 
   // Clean up stale _close sentinel
-  try { fs.unlinkSync(path.join(inputDir, '_close')); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(path.join(inputDir, '_close'));
+  } catch {
+    /* ignore */
+  }
 
   const cwd = input.isMain ? process.cwd() : groupDir;
   const mcpConfigPath = writeMcpConfig(group, input, ipcDir);
@@ -403,15 +453,25 @@ export async function runCliAgent(
 
     // Emit session update marker so host can track session ID
     if (onOutput) {
-      await onOutput({ status: 'success', result: null, newSessionId: sessionId });
+      await onOutput({
+        status: 'success',
+        result: null,
+        newSessionId: sessionId,
+      });
     }
 
-    logger.debug({ folder: group.folder }, 'CLI query done, waiting for IPC input');
+    logger.debug(
+      { folder: group.folder },
+      'CLI query done, waiting for IPC input',
+    );
 
     // Wait for follow-up message or _close
     const nextMessage = await waitForIpcMessage(inputDir);
     if (nextMessage === null) {
-      logger.debug({ folder: group.folder }, 'Close sentinel received, CLI loop ending');
+      logger.debug(
+        { folder: group.folder },
+        'Close sentinel received, CLI loop ending',
+      );
       break;
     }
 
